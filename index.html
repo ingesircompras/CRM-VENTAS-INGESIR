@@ -301,6 +301,11 @@ async function cargar(silent){
 
 /* ============================== INICIO ============================== */
 async function init(){
+  // Link de acceso directo: .../#k=CLAVE (y opcional &u=URL_EXEC). Se guarda y se borra de la barra de direcciones.
+  try{
+    const h=new URLSearchParams(location.hash.slice(1));
+    if(h.get('k')){ LS.set('key',h.get('k')); LS.set('demo',false); if(h.get('u')) LS.set('url',h.get('u')); history.replaceState(null,'',location.pathname+location.search); }
+  }catch(e){}
   S.url = LS.get('url_movida','') || API_URL_FIJA || LS.get('url','');
   S.key = LS.get('key','');
   S.demo = LS.get('demo',false);
