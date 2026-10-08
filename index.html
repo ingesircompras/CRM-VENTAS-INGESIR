@@ -590,7 +590,8 @@ function modal(title,body,foot,wide){
     <div class="modal-b">${body}</div>${foot?`<div class="modal-f">${foot}</div>`:''}</div></div>`;
   const first=$('#modal input:not([readonly]),#modal textarea'); if(first && !('ontouchstart' in window)) first.focus();
 }
-function cerrarModal(){ $('#modal').innerHTML=''; }
+let alCerrarModal=null;
+function cerrarModal(){ $('#modal').innerHTML=''; const fn=alCerrarModal; alCerrarModal=null; if(fn) setTimeout(fn,0); }
 
 /* =========================== ALTA / EDICIÓN CONSULTA ================= */
 let FC={};
@@ -648,7 +649,7 @@ async function guardarConsulta(cotizar,id){
     const r=await call('cambiarEstado',{id:c.id,estado:'Perdida',motivo_perdida:cfgList('MOTIVOS_PERDIDA')[0]||'No califica'},'Cerrada como no califica');
     upsert(S.db.consultas,r); refreshAll(); return;
   }
-  if(cotizar) cotizador(c.id); else if(!id) abrirConsulta(c.id);
+  if(cotizar){ cotizador(c.id); alCerrarModal=()=>ofrecerDescartar(c.id); } else if(!id) abrirConsulta(c.id);
 }
 
 /* ============================ DETALLE CONSULTA ====================== */
@@ -669,6 +670,7 @@ async function abrirConsulta(id,keepScroll){
         ${c.email?`<a class="btn sm" href="mailto:${esc(c.email)}">✉️ Email</a>`:''}
         <button class="btn sm acc" onclick="cotizador('${id}')">📄 Cotizar</button>
         <button class="btn sm" onclick="formConsulta('${id}')">✏️ Editar datos</button>
+        <button class="btn sm danger" onclick="eliminarConsulta('${id}')" title="Borrar una consulta cargada por error">🗑 Eliminar</button>
       </div></div>
     <div class="db">
       <div class="panel"><div class="small muted" style="font-weight:700;margin-bottom:6px">ESTADO</div>
@@ -708,7 +710,8 @@ async function abrirConsulta(id,keepScroll){
             <button class="btn sm" onclick="adjuntar('${x.id}')" title="Subir/reemplazar el PDF o Word de esta cotización">📎 Adjuntar</button>
             <button class="btn sm pri" onclick="envio('${x.id}')">📤 Enviar</button>
             <button class="btn sm" onclick="cotizador('${id}','${x.id}','rev')" title="Crea ${x.numero}-R${Number(x.revision)+1} manteniendo la original">↻ Revisión</button>
-            <button class="btn sm" onclick="cotizador('${id}','${x.id}','copia')" title="Nueva cotización partiendo de esta">⧉ Copiar</button></div>`).join(''):'<div class="muted small">Todavía no se cotizó.</div>'}
+            <button class="btn sm" onclick="cotizador('${id}','${x.id}','copia')" title="Nueva cotización partiendo de esta">⧉ Copiar</button>
+            <button class="btn sm danger" onclick="eliminarCotizacion('${x.id}')" title="Eliminar esta cotización y su PDF">🗑</button></div>`).join(''):'<div class="muted small">Todavía no se cotizó.</div>'}
         </div></div>
 
       <div class="panel"><div class="small muted" style="font-weight:700;margin-bottom:6px">DATOS DE LA CONSULTA</div>
@@ -729,6 +732,30 @@ async function abrirConsulta(id,keepScroll){
     if(S.open!==id||!$('#hist')) return;
     $('#hist').innerHTML = h.length? h.map(x=>`<li><div class="when">${fdt(x.fecha)} · ${esc(x.usuario||'')}</div>${TIPO_ICO[x.tipo]||'•'} ${esc(x.detalle)}</li>`).join('') : '<li class="muted">Sin movimientos</li>';
   }catch(e){ if($('#hist')) $('#hist').innerHTML='<li class="muted">No se pudo cargar el historial</li>'; }
+}
+/* --------- eliminar / descartar --------- */
+async function eliminarConsulta(id){
+  const c=S.db.consultas.find(x=>x.id===id); if(!c) return;
+  const n=cotsDe(id).length;
+  if(!confirm(`¿Eliminar la consulta ${id} de ${nombreDe(c)}?${n?`\n\nTambién se eliminan sus ${n} cotización(es) y los PDF van a la papelera de Drive.`:''}\n\nUsalo solo para cargas por error. Si el cliente no compró, mejor marcala como ✖ Perdida (así cuenta en las métricas).`)) return;
+  await call('eliminarConsulta',{id},'Consulta '+id+' eliminada');
+  S.db.consultas=S.db.consultas.filter(x=>x.id!==id); S.db.cotizaciones=S.db.cotizaciones.filter(x=>x.consulta_id!==id);
+  cerrarDrawer(); refreshAll();
+}
+async function eliminarCotizacion(cotId){
+  const x=S.db.cotizaciones.find(y=>y.id===cotId); if(!x) return;
+  if(!confirm(`¿Eliminar la cotización ${cotId}?\nEl PDF va a la papelera de Drive.${x.enviada_fecha?'\n\nOjo: ya se envió al cliente el '+fd(x.enviada_fecha)+'.':''}`)) return;
+  const r=await call('eliminarCotizacion',{id:cotId},'Cotización '+cotId+' eliminada');
+  S.db.cotizaciones=S.db.cotizaciones.filter(y=>y.id!==cotId); if(r.consulta) upsert(S.db.consultas,r.consulta);
+  refreshAll();
+}
+/** Si se cerró el cotizador sin guardar y la consulta recién creada quedó vacía, ofrece descartarla. */
+async function ofrecerDescartar(id){
+  const c=S.db.consultas.find(x=>x.id===id); if(!c || cotsDe(id).length) { if(c) abrirConsulta(id); return; }
+  if(confirm(`Cerraste sin guardar la cotización.\n\n¿Querés DESCARTAR también la consulta ${id} (${nombreDe(c)})?\n\nAceptar = se borra · Cancelar = queda guardada para cotizar después`)){
+    await call('eliminarConsulta',{id},'Consulta descartada');
+    S.db.consultas=S.db.consultas.filter(x=>x.id!==id); refreshAll();
+  } else abrirConsulta(id);
 }
 function cerrarDrawer(){ S.open=null; $('#drawer').innerHTML=''; }
 
@@ -891,7 +918,7 @@ async function czGuardarArchivo(){
   if(f){ d.file_b64=await leerB64(f); d.file_name=f.name; d.file_mime=f.type||'application/pdf'; if(S.demo) d._fileUrl=URL.createObjectURL(f); }
   const r=await call('saveCotizacion',d,'Cotización registrada ✔');
   upsert(S.db.cotizaciones,r.cotizacion); upsert(S.db.consultas,r.consulta);
-  cerrarModal(); refreshAll(); envio(r.cotizacion.id,true);
+  alCerrarModal=null; cerrarModal(); refreshAll(); envio(r.cotizacion.id,true);
 }
 function adjuntar(cotId){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='.pdf,.doc,.docx,application/pdf';
@@ -988,7 +1015,7 @@ async function czGuardar(){
     if(S.demo) up._fileUrl=URL.createObjectURL(blob);
     const r2=await call('saveCotizacion',up,editando?'Cotización '+cot.id+' actualizada ✔ (PDF reemplazado)':'Cotización '+cot.id+' generada ✔');
     upsert(S.db.cotizaciones,r2.cotizacion); upsert(S.db.consultas,r2.consulta);
-    cerrarModal(); refreshAll(); envio(cot.id,true);
+    alCerrarModal=null; cerrarModal(); refreshAll(); envio(cot.id,true);
   }catch(e){ const b=$('#czSaveBtn'); if(b) b.disabled=false; }
 }
 
@@ -1350,6 +1377,8 @@ const Demo = (()=>{
       log(c.id,d.usuario,d.medio==='whatsapp'?'whatsapp':'email','Cotización '+cot.id+' enviada por '+(d.medio||'email')+(d.para?' a '+d.para:'')); return {cotizacion:cot,consulta:c};
     },
     enviarCotizacion:d=>H.marcarEnviada(Object.assign(d,{medio:'email'})),
+    eliminarConsulta:d=>{ db.consultas=db.consultas.filter(c=>c.id!==d.id); db.cotizaciones=db.cotizaciones.filter(c=>c.consulta_id!==d.id); hist=hist.filter(h=>h.consulta_id!==d.id); return {eliminada:d.id}; },
+    eliminarCotizacion:d=>{ const x=db.cotizaciones.find(c=>c.id===d.id); db.cotizaciones=db.cotizaciones.filter(c=>c.id!==d.id); const c=get(x.consulta_id); const r=db.cotizaciones.filter(k=>k.consulta_id===c.id); c.monto_estimado=r.length?r[r.length-1].total:''; log(c.id,d.usuario,'cotizacion','Cotización '+d.id+' eliminada'); return {eliminada:d.id,consulta:c}; },
     saveProducto:d=>{ const i=db.productos.findIndex(p=>p.codigo===d.codigo); delete d.usuario; if(i>=0) db.productos[i]=Object.assign(db.productos[i],d); else db.productos.push(d); db.productos=db.productos.filter(p=>p.activo!=='NO'); return db.productos; }
   };
   return { run(action,data){ load(); if(!H[action]) return Promise.reject(new Error('Acción desconocida')); return new Promise(res=>setTimeout(()=>{ const r=H[action](data); save(); res(JSON.parse(JSON.stringify(r))); },120)); } };
