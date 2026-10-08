@@ -1176,9 +1176,9 @@ function pdfDefModerno(d,c,numero,fecha){
     content:[
       // Título + datos de la cotización
       {columns:[
-        {width:'*',stack:[{text:'COTIZACIÓN',fontSize:22,bold:true,color:AZO,characterSpacing:1},{text:`${C('CIUDAD')}, ${fechaLarga(fecha)}`,fontSize:9,color:GR,margin:[0,2,0,0]}]},
+        {width:'*',stack:[{text:'COTIZACIÓN',fontSize:22,bold:true,color:AZO,characterSpacing:1,margin:[0,6,0,0]}]},
         {width:200,table:{widths:['*','*'],body:[
-          [{stack:[lbl('Cotización Nº'),{text:numero,bold:true,fontSize:12,color:AZO}]},{stack:[lbl('Válida hasta'),{text:fdLarga(vence),bold:true,fontSize:10,margin:[0,1.5,0,0]}]}],
+          [{stack:[lbl('Cotización Nº'),{text:numero,bold:true,fontSize:12,color:AZO}]},{stack:[lbl('Fecha'),{text:fdLarga(fecha),bold:true,fontSize:10,margin:[0,1.5,0,0]}]}],
           [{stack:[lbl('Moneda'),{text:m==='ARS'?'Pesos (ARS)':'Dólares (USD)',fontSize:9}]},{stack:[lbl('Atendido por'),{text:ex.firma||'',fontSize:9}]}]]},
          layout:{hLineWidth:()=>0,vLineWidth:()=>0,fillColor:()=>CL,paddingLeft:()=>8,paddingRight:()=>6,paddingTop:()=>5,paddingBottom:()=>4}}]},
       // Cliente
