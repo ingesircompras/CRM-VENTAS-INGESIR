@@ -497,8 +497,8 @@ function pintarCots(){
   rows=rows.slice(0,q?50:15);
   $('#cqw').innerHTML=`<table class="tbl"><thead><tr><th>N°</th><th>Fecha</th><th>Cliente</th><th>Equipo</th><th class="num">Monto</th><th>Estado</th><th></th></tr></thead><tbody>
     ${rows.map(x=>{const c=S.db.consultas.find(y=>y.id===x.consulta_id)||{}; return `<tr>
-      <td><b>${esc(x.id)}</b></td><td>${fd(x.fecha)}</td><td onclick="abrirConsulta('${c.id}')" style="cursor:pointer"><b>${esc(nombreDe(c))}</b><div class="muted small">${esc(c.empresa?c.contacto:'')}</div></td>
-      <td class="small">${esc(tituloDe(x))}</td><td class="num">${num(x.total)?moneyK(x.total,x.moneda)+' <span class="muted small">+IVA</span>':'—'}</td>
+      <td><b>${esc(x.id)}</b> <span class="pill" style="background:${mercadoDe(x)==='ME'?'#0e7490':'#475569'}">${mercadoDe(x)}</span></td><td>${fd(x.fecha)}</td><td onclick="abrirConsulta('${c.id}')" style="cursor:pointer"><b>${esc(nombreDe(c))}</b><div class="muted small">${esc(c.empresa?c.contacto:'')}</div></td>
+      <td class="small">${esc(tituloDe(x))}</td><td class="num">${num(x.total)?moneyK(x.total,x.moneda)+' <span class="muted small">'+ivaTxt(x)+'</span>':'—'}</td>
       <td class="small">${pendienteReenvio(x)?'<span style="color:var(--warn);font-weight:700">⚠ Modificada, falta reenviar</span>':x.enviada_fecha?'✔ Enviada '+fd(x.enviada_fecha):'<span class="muted">Sin enviar</span>'}</td>
       <td style="white-space:nowrap">${x.pdf_url||x._fileUrl?`<button class="btn sm" onclick="verPDF('${x.id}')">👁</button> `:''}${esEditable(x)?`<button class="btn sm" onclick="cotizador('${x.consulta_id}','${x.id}','editar')">✏️ Editar</button> `:''}<button class="btn sm pri" onclick="envio('${x.id}')">📤</button></td></tr>`;}).join('')}
     ${rows.length?'':'<tr><td colspan="7" class="muted" style="text-align:center;padding:20px">Sin cotizaciones</td></tr>'}</tbody></table>`;
@@ -702,7 +702,7 @@ async function abrirConsulta(id,keepScroll){
 
       <div class="panel"><div class="row"><div class="small muted grow" style="font-weight:700">COTIZACIONES</div><button class="btn sm acc" onclick="cotizador('${id}')">+ Nueva cotización</button></div>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
-        ${cots.length?cots.map(x=>`<div class="cot"><div class="grow"><b>${esc(x.id)}</b> <span class="muted small">· ${fd(x.fecha)} · ${esc(x.creado_por||'')}</span><div>${num(x.total)?money(x.total,x.moneda)+' <span class="muted small">+ IVA</span>':'<span class="muted small">sin monto cargado</span>'} <span class="muted small">${esc((()=>{try{return JSON.parse(x.extras_json||'{}').titulo||JSON.parse(x.items_json||'[]').map(i=>i.nombre).join(' + ')}catch(e){return ''}})())}</span></div>
+        ${cots.length?cots.map(x=>`<div class="cot"><div class="grow"><b>${esc(x.id)}</b> <span class="muted small">· ${fd(x.fecha)} · ${esc(x.creado_por||'')}</span><div><span class="pill" style="background:${mercadoDe(x)==='ME'?'#0e7490':'#475569'}">${mercadoDe(x)}</span> ${num(x.total)?money(x.total,x.moneda)+' <span class="muted small">'+ivaTxt(x)+'</span>':'<span class="muted small">sin monto cargado</span>'} <span class="muted small">${esc((()=>{try{return JSON.parse(x.extras_json||'{}').titulo||JSON.parse(x.items_json||'[]').map(i=>i.nombre).join(' + ')}catch(e){return ''}})())}</span></div>
             <div class="small ${x.enviada_fecha?'':'muted'}">${x.enviada_fecha?'✔ Enviada '+fd(x.enviada_fecha)+' a '+esc(x.enviada_a):'No enviada todavía'}${extrasDe(x).modificada?' · ✏️ modificada '+fdt(extrasDe(x).modificada):''}</div>
             ${pendienteReenvio(x)?'<div class="small" style="color:var(--warn);font-weight:700">⚠ Se modificó después de enviarla: reenviala al cliente</div>':''}</div>
             ${x.pdf_url||x._fileUrl?`<button class="btn sm" onclick="verPDF('${x.id}')">👁 PDF</button>`:''}
@@ -809,6 +809,10 @@ async function confirmarCierre(id,estado){
 /* =============================== COTIZADOR ========================== */
 const extrasDe = x => { try{ return JSON.parse(x.extras_json||'{}'); }catch(e){ return {}; } };
 const tituloDe = x => { const e=extrasDe(x); try{ return e.titulo||JSON.parse(x.items_json||'[]').map(i=>i.nombre).join(' + '); }catch(_){ return e.titulo||''; } };
+const mercadoDe = x => extrasDe(x).mercado==='ME'?'ME':'MI';
+const ivaTxt = x => mercadoDe(x)==='ME'?'':' + IVA';
+/** Nombre del PDF: 026-0521 Cliente - Máquina (MI) */
+const nombreArchivo = (num,c,titulo,mercado) => (`${num} ${(c.empresa||c.contacto||'Cliente').trim()} - ${String(titulo||'').trim()} (${mercado==='ME'?'ME':'MI'})`).replace(/[\\/:*?"<>|]/g,'').replace(/\s+/g,' ').slice(0,150);
 const esEditable = x => extrasDe(x).cuotas!==undefined;           // armada en el sistema (no subida como archivo)
 const pendienteReenvio = x => { const m=extrasDe(x).modificada; return !!(m && x.enviada_fecha && String(m) > String(x.enviada_fecha)); };
 // Textos por defecto del formato F-7.2.05 (se pueden cambiar en la hoja CONFIG)
@@ -825,7 +829,17 @@ const DEF = {
   PLAZO_ENTREGA:'60 días, contados a partir de la fecha de acreditación del pago del anticipo.',
   GARANTIA:'1 año contra todo defecto de fabricación, consiste en la sustitución de piezas mecánicas que presenten defectos. No se incluyen los defectos producidos por el uso inadecuado del equipo o su mala conservación. Ingesir traslada al comprador las garantías que cubren los componentes fabricados por terceros.',
   TEXTO_PRUEBA:'La máquina será probada con el producto para el que fue diseñada, en n/ fábrica y en presencia del comprador, quien realizará conjuntamente la instrucción de uso de la misma. El comprador deberá proveer envases y producto para las pruebas.',
-  TEXTO_CIERRE:'Quedando en espera de una grata respuesta, hacemos propicia la oportunidad para saludarlo muy atte.'
+  TEXTO_CIERRE:'Quedando en espera de una grata respuesta, hacemos propicia la oportunidad para saludarlo muy atte.',
+  // --- Mercado externo (ME)
+  ME_CONDICION:'Precio cotizado FCA Rosario. Máquina despachada por aduana en Rosario, Argentina. Incluye embalaje de exportación. Flete y seguro a cargo del comprador.',
+  ME_PLAZO:'30 días de concretado el anticipo.',
+  ME_PAGO_A:'Anticipo del 30% al encargar el equipo. Saldo del 70% restante previo a embarcar el equipo en fábrica, contra verificación por parte del comprador de su correcto funcionamiento.',
+  ME_PAGO_B:'Carta de crédito confirmada e irrevocable, a la vista, emitida a n/ favor, por vía del banco que se determine oportunamente.',
+  ME_GARANTIA:'1 año contra todo defecto de fabricación, consiste en la sustitución de piezas mecánicas que presenten defectos. Sustitución de piezas en condición FCA Rosario. No se incluyen los defectos producidos por el uso inadecuado del equipo o su mala conservación. Ingesir traslada al comprador las garantías que cubren los componentes fabricados por terceros.',
+  ME_ORIGEN:'Equipo 100% DE FABRICACIÓN ARGENTINA, con stock de piezas y asistencia técnica constante e inmediata garantizadas.',
+  ME_PRUEBA:'La máquina será probada con producto en n/ fábrica, con asistencia del personal técnico de la firma compradora, complementándose al mismo tiempo la verificación de su correcto funcionamiento y la instrucción de uso del equipo por parte de dicho personal.',
+  ME_FORM_CODIGO:'F-7.2.05 Rev.1',
+  ME_PIE_ISO:'Empresa con Sistema de Gestión de la Calidad certificado ISO 9001:2015'
 };
 const C = k => (S.db.config[k]!==undefined && String(S.db.config[k]).trim()!=='') ? String(S.db.config[k]) : (DEF[k]||'');
 const finDeMes = () => {const d=new Date(); return isoOf(new Date(d.getFullYear(),d.getMonth()+1,0));};
@@ -856,12 +870,17 @@ function cotizador(consultaId,baseId,modo){
     incluir_fin:ex.incluir_fin!==undefined?ex.incluir_fin:true, financiacion:ex.financiacion||C('FINANCIACION'),
     condiciones_pago:B('condiciones_pago',C('COND_PAGO')), plazo_entrega:B('plazo_entrega',C('PLAZO_ENTREGA')),
     validez_dias:B('validez_dias',C('VALIDEZ_DIAS')), garantia:B('garantia',C('GARANTIA')),
-    lugar_entrega:B('lugar_entrega',C('LUGAR_ENTREGA')), notas:B('notas',''), firma:ex.firma||firmaDe(S.user)};
+    lugar_entrega:B('lugar_entrega',C('LUGAR_ENTREGA')), notas:B('notas',''), firma:ex.firma||firmaDe(S.user),
+    mercado: ex.mercado || (c.provincia==='Exterior'?'ME':'MI'), pago_b: ex.pago_b||C('ME_PAGO_B'), origen: ex.origen||C('ME_ORIGEN')};
+  if(!base && CZ.mercado==='ME') czAplicarMercado('ME',true);
   if(base && base.notas==='Importada de la planilla') CZ.notas='';
   const titulo = modo==='editar'?'✏️ Editar cotización '+base.id : modo==='rev'?'Nueva revisión de '+base.numero : modo==='copia'?'Nueva cotización (copia de '+base.id+')':'Nueva cotización';
   CZ.subir = modo==='rev'||modo==='copia'||modo==='editar' ? false : LS.get('czSubir',false);
   const T=(k,rows)=>`<textarea rows="${rows}" oninput="CZ.${k}=this.value">${esc(CZ[k])}</textarea>`;
   modal(`📄 ${titulo} — ${esc(nombreDe(c))}`, `
+    <div class="row" style="margin-bottom:12px;gap:10px"><span class="small muted" style="font-weight:700">MERCADO</span>
+      <div class="switch" id="czMer">${[['MI','🇦🇷 Mercado interno (MI)'],['ME','🌎 Mercado externo (ME)']].map(([k,l])=>`<button data-k="${k}" class="${CZ.mercado===k?'on':''}" onclick="czAplicarMercado('${k}')">${l}</button>`).join('')}</div>
+      <span class="small muted" id="czMerTxt">${CZ.mercado==='ME'?'Exportación: sin IVA, en USD, condiciones FCA Rosario.':'Argentina: precios + IVA, cuotas y financiación bancaria.'}</span></div>
     <div class="switch" id="czModo" style="margin-bottom:14px"><button onclick="czModo(false)">🧮 Armar en el sistema (formato INGESIR)</button><button onclick="czModo(true)">📎 Subir PDF / Word ya hecho</button></div>
     <div id="czSubirBox" class="hidden" style="display:flex;flex-direction:column;gap:10px">
       <div class="grid3">
@@ -879,27 +898,58 @@ function cotizador(consultaId,baseId,modo){
         <div class="switch" id="czMon">${['USD','ARS'].map(m=>`<button class="${CZ.moneda===m?'on':''}" onclick="CZ.moneda='${m}';document.querySelectorAll('#czMon button').forEach(b=>b.classList.toggle('on',b.textContent==='${m}'));czCalc()">${m}</button>`).join('')}</div></div>
       </div>
       <div id="czItems" style="display:flex;flex-direction:column;gap:10px"></div>
-      <button class="btn sm" style="margin-top:8px" onclick="CZ.items.push({codigo:'',nombre:'',descripcion:'',precio:0,bonif:CZ.items.length?CZ.items[CZ.items.length-1].bonif:0,iva:10.5});czRows()">+ Agregar ítem / adicional</button>
+      <button class="btn sm" style="margin-top:8px" onclick="CZ.items.push({codigo:'',nombre:'',descripcion:'',precio:0,bonif:CZ.items.length?CZ.items[CZ.items.length-1].bonif:0,iva:CZ.mercado==='ME'?0:10.5});czRows()">+ Agregar ítem / adicional</button>
       <div class="row" style="margin-top:14px;align-items:flex-start">
-        <div class="grid2 grow" style="min-width:280px">
-          <label class="f">Precio bonificado válido hasta<input type="date" value="${CZ.bonif_hasta}" oninput="CZ.bonif_hasta=this.value"></label>
-          <label class="f">Cuotas sin interés<select onchange="CZ.cuotas=this.value;czCalc()">${['0','3','6','9','12'].map(n=>`<option value="${n}" ${String(CZ.cuotas)===n?'selected':''}>${n==='0'?'Sin cuotas':n+' cuotas'}</option>`).join('')}</select></label>
-          <label class="small row span2" style="gap:6px"><input type="checkbox" ${CZ.mostrar_cuota?'checked':''} onchange="CZ.mostrar_cuota=this.checked"> Mostrar el valor de la cuota (suma todos los ítems). Destildar si hay opciones alternativas → "EN EL TOTAL DE LA COMPRA".</label>
-          <div class="span2" style="display:flex;flex-direction:column;gap:4px"><label class="small row" style="gap:6px;font-weight:600;color:var(--muted)"><input type="checkbox" ${CZ.incluir_fin?'checked':''} onchange="CZ.incluir_fin=this.checked"> Incluir recuadro "Opción financiación bancaria"</label><textarea class="inp" rows="3" oninput="CZ.financiacion=this.value">${esc(CZ.financiacion)}</textarea></div>
-          <label class="f span2">Formas de pago (anticipo / saldo)${T('condiciones_pago',2)}</label>
-          <label class="f">Plazo de entrega<input value="${esc(CZ.plazo_entrega)}" oninput="CZ.plazo_entrega=this.value"></label>
-          <label class="f">Validez de la oferta (días)<input type="number" value="${esc(CZ.validez_dias)}" oninput="CZ.validez_dias=this.value"></label>
-          <label class="f span2">Lugar de entrega<input value="${esc(CZ.lugar_entrega)}" oninput="CZ.lugar_entrega=this.value"></label>
-          <label class="f span2">Garantía${T('garantia',2)}</label>
-          <label class="f span2">Observaciones (opcional, aparece en condiciones)${T('notas',2)}</label>
-          <label class="f">Firma<input value="${esc(CZ.firma)}" oninput="CZ.firma=this.value" placeholder="Ing. Nombre Apellido"></label>
-        </div>
+        <div class="grid2 grow" style="min-width:280px" id="czCond"></div>
         <div class="tot-box" id="czTot"></div>
       </div>
     </div>
     <datalist id="dlProd2">${S.db.productos.map(p=>`<option value="${esc(p.nombre)}">${num(p.precio)?money(p.precio,p.moneda)+' + IVA':''}</option>`).join('')}</datalist>`,
     `<button class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn" id="czPrevBtn" onclick="czPreview()">👁 Vista previa PDF</button><button class="btn" id="czDlBtn" onclick="czPreview(true)" title="Descarga el borrador con nombre (no se guarda en Drive)">⬇ Descargar borrador</button><button class="btn acc" id="czSaveBtn" onclick="czGuardar()">💾 Guardar y generar PDF</button>`, true);
   czRows(); czModo(CZ.subir);
+}
+function czCondHTML(){
+  const T=(k,rows)=>`<textarea rows="${rows}" oninput="CZ.${k}=this.value">${esc(CZ[k])}</textarea>`;
+  const comun=`<label class="f">Validez de la oferta (días)<input type="number" value="${esc(CZ.validez_dias)}" oninput="CZ.validez_dias=this.value"></label>
+    <label class="f">Precio bonificado válido hasta<input type="date" value="${CZ.bonif_hasta}" oninput="CZ.bonif_hasta=this.value"></label>`;
+  if(CZ.mercado==='ME') return `
+    <label class="f span2">Condición de venta / entrega${T('lugar_entrega',2)}</label>
+    <label class="f span2">Plazo de fabricación<input value="${esc(CZ.plazo_entrega)}" oninput="CZ.plazo_entrega=this.value"></label>
+    <label class="f span2">Forma de pago A${T('condiciones_pago',2)}</label>
+    <label class="f span2">Forma de pago B${T('pago_b',2)}</label>
+    <label class="f span2">Garantía${T('garantia',3)}</label>
+    <label class="f span2">Origen${T('origen',2)}</label>
+    ${comun}
+    <label class="f span2">Observaciones (opcional)${T('notas',2)}</label>
+    <label class="f">Firma<input value="${esc(CZ.firma)}" oninput="CZ.firma=this.value"></label>`;
+  return `
+    <label class="f">Cuotas sin interés<select onchange="CZ.cuotas=this.value;czCalc()">${['0','3','6','9','12'].map(n=>`<option value="${n}" ${String(CZ.cuotas)===n?'selected':''}>${n==='0'?'Sin cuotas':n+' cuotas'}</option>`).join('')}</select></label>
+    ${comun}
+    <label class="small row span2" style="gap:6px"><input type="checkbox" ${CZ.mostrar_cuota?'checked':''} onchange="CZ.mostrar_cuota=this.checked"> Mostrar el valor de la cuota (suma todos los ítems). Destildar si hay opciones alternativas → "EN EL TOTAL DE LA COMPRA".</label>
+    <div class="span2" style="display:flex;flex-direction:column;gap:4px"><label class="small row" style="gap:6px;font-weight:600;color:var(--muted)"><input type="checkbox" ${CZ.incluir_fin?'checked':''} onchange="CZ.incluir_fin=this.checked"> Incluir recuadro "Opción financiación bancaria"</label><textarea class="inp" rows="3" oninput="CZ.financiacion=this.value">${esc(CZ.financiacion)}</textarea></div>
+    <label class="f span2">Formas de pago (anticipo / saldo)${T('condiciones_pago',2)}</label>
+    <label class="f">Plazo de entrega<input value="${esc(CZ.plazo_entrega)}" oninput="CZ.plazo_entrega=this.value"></label>
+    <label class="f">Lugar de entrega<input value="${esc(CZ.lugar_entrega)}" oninput="CZ.lugar_entrega=this.value"></label>
+    <label class="f span2">Garantía${T('garantia',2)}</label>
+    <label class="f span2">Observaciones (opcional, aparece en condiciones)${T('notas',2)}</label>
+    <label class="f">Firma<input value="${esc(CZ.firma)}" oninput="CZ.firma=this.value" placeholder="Ing. Nombre Apellido"></label>`;
+}
+/** Cambia entre mercado interno y externo y carga las condiciones por defecto de cada uno. */
+function czAplicarMercado(k,silencioso){
+  if(!silencioso && CZ.mercado===k) return;
+  CZ.mercado=k;
+  if(k==='ME'){
+    Object.assign(CZ,{moneda:'USD',cuotas:'0',incluir_fin:false,lugar_entrega:C('ME_CONDICION'),plazo_entrega:C('ME_PLAZO'),condiciones_pago:C('ME_PAGO_A'),pago_b:C('ME_PAGO_B'),garantia:C('ME_GARANTIA'),origen:C('ME_ORIGEN')});
+    CZ.items.forEach(it=>it.iva=0);
+  } else {
+    Object.assign(CZ,{cuotas:C('CUOTAS'),incluir_fin:true,lugar_entrega:C('LUGAR_ENTREGA'),plazo_entrega:C('PLAZO_ENTREGA'),condiciones_pago:C('COND_PAGO'),garantia:C('GARANTIA')});
+    CZ.items.forEach(it=>{ if(!num(it.iva)){ const p=S.db.productos.find(x=>x.nombre===it.nombre); it.iva=num(p&&p.iva)||10.5; } });
+  }
+  if(silencioso || !$('#czMer')) return;
+  document.querySelectorAll('#czMer button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+  document.querySelectorAll('#czMon button').forEach(b=>b.classList.toggle('on',b.textContent===CZ.moneda));
+  $('#czMerTxt').textContent = k==='ME'?'Exportación: sin IVA, en USD, condiciones FCA Rosario.':'Argentina: precios + IVA, cuotas y financiación bancaria.';
+  czRows();
 }
 function czModo(sub){
   CZ.subir=sub; LS.set('czSubir',sub);
@@ -913,10 +963,15 @@ async function czGuardarArchivo(){
   if(!eq) return toast('Escribí qué equipo se cotizó',true);
   if(f && f.size>20e6) return toast('El archivo supera 20 MB',true);
   const d={consulta_id:CZ.consultaId,moneda:mon,items:[{nombre:eq,descripcion:'',precio:tot,bonif:0,iva:0}],subtotal:tot,descuento:0,iva:0,total:tot,
-    extras_json:JSON.stringify({titulo:eq}),notas:'Cotización cargada como archivo'};
+    extras_json:JSON.stringify({titulo:eq,mercado:CZ.mercado}),notas:'Cotización cargada como archivo'};
   if(CZ.modo==='rev') d.revision_de=S.db.cotizaciones.find(x=>x.id===CZ.baseId).numero;
-  if(f){ d.file_b64=await leerB64(f); d.file_name=f.name; d.file_mime=f.type||'application/pdf'; if(S.demo) d._fileUrl=URL.createObjectURL(f); }
-  const r=await call('saveCotizacion',d,'Cotización registrada ✔');
+  let r=await call('saveCotizacion',d,f?null:'Cotización registrada ✔');
+  if(f){
+    const c=S.db.consultas.find(x=>x.id===CZ.consultaId), ext=(f.name.match(/\.[a-z0-9]+$/i)||['.pdf'])[0];
+    const up={id:r.cotizacion.id,consulta_id:CZ.consultaId,silencioso:true,file_b64:await leerB64(f),file_mime:f.type||'application/pdf',file_name:nombreArchivo(r.cotizacion.id,c,eq,CZ.mercado)+ext};
+    if(S.demo) up._fileUrl=URL.createObjectURL(f);
+    r=await call('saveCotizacion',up,'Cotización '+r.cotizacion.id+' registrada ✔');
+  }
   upsert(S.db.cotizaciones,r.cotizacion); upsert(S.db.consultas,r.consulta);
   alCerrarModal=null; cerrarModal(); refreshAll(); envio(r.cotizacion.id,true);
 }
@@ -924,20 +979,22 @@ function adjuntar(cotId){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='.pdf,.doc,.docx,application/pdf';
   inp.onchange=async()=>{ const f=inp.files[0]; if(!f) return; if(f.size>20e6) return toast('El archivo supera 20 MB',true);
     const x=S.db.cotizaciones.find(y=>y.id===cotId);
-    const d={id:cotId,consulta_id:x.consulta_id,silencioso:true,file_b64:await leerB64(f),file_name:f.name,file_mime:f.type||'application/pdf'};
+    const cc=S.db.consultas.find(y=>y.id===x.consulta_id)||{}, ext=(f.name.match(/\.[a-z0-9]+$/i)||['.pdf'])[0];
+    const d={id:cotId,consulta_id:x.consulta_id,silencioso:true,file_b64:await leerB64(f),file_name:nombreArchivo(cotId,cc,tituloDe(x),mercadoDe(x))+ext,file_mime:f.type||'application/pdf'};
     if(S.demo) d._fileUrl=URL.createObjectURL(f);
     const r=await call('saveCotizacion',d,'Archivo adjuntado a '+cotId);
     upsert(S.db.cotizaciones,r.cotizacion); upsert(S.db.consultas,r.consulta); refreshAll(); };
   inp.click();
 }
 function czRows(){
+  if($('#czCond')) $('#czCond').innerHTML=czCondHTML();
   $('#czItems').innerHTML = CZ.items.map((it,i)=>`<div class="panel" style="padding:10px;border:1px solid var(--line);box-shadow:none">
     <div class="row" style="align-items:flex-end">
       <label class="f grow" style="min-width:220px">${i===0?'Equipo principal':'Adicional / opción '+i} <span style="font-weight:400">(elegí del catálogo o escribí)</span><input list="dlProd2" value="${esc(it.nombre)}" onchange="czProd(${i},this.value)" oninput="CZ.items[${i}].nombre=this.value"></label>
       <label class="f" style="width:120px">Precio lista<input type="number" min="0" step="1" value="${it.precio}" oninput="CZ.items[${i}].precio=num(this.value);czCalc()"></label>
       <label class="f" style="width:80px">Bonif. %<input type="number" min="0" max="100" step="1" value="${it.bonif}" oninput="CZ.items[${i}].bonif=num(this.value);czCalc()"></label>
       <div style="width:120px;display:flex;flex-direction:column;gap:4px;font-size:12px"><span class="muted" style="font-weight:600">Bonificado</span><b id="czBon${i}" style="padding:8px 0;font-size:14px"></b></div>
-      <label class="f" style="width:80px">IVA %<select onchange="CZ.items[${i}].iva=num(this.value);czCalc()">${[10.5,21,0].map(v=>`<option ${num(it.iva)===v?'selected':''}>${v}</option>`).join('')}</select></label>
+      <label class="f" style="width:80px">IVA %<select ${CZ.mercado==='ME'?'disabled title="Exportación: sin IVA"':''} onchange="CZ.items[${i}].iva=num(this.value);czCalc()">${[10.5,21,0].map(v=>`<option ${num(it.iva)===v?'selected':''}>${v}</option>`).join('')}</select></label>
       ${CZ.items.length>1?`<button class="x" title="Quitar" onclick="CZ.items.splice(${i},1);czRows()">×</button>`:''}
     </div>
     <label class="f" style="margin-top:6px">Texto técnico (sale tal cual en el PDF — lo podés modificar solo para esta cotización)<textarea rows="5" oninput="CZ.items[${i}].descripcion=this.value">${esc(it.descripcion)}</textarea></label>
@@ -956,7 +1013,7 @@ async function guardarEnCatalogo(i){
 }
 function czProd(i,nombre){
   const p=S.db.productos.find(x=>x.nombre===nombre); const it=CZ.items[i]; it.nombre=nombre;
-  if(p){ it.codigo=p.codigo; it.descripcion=p.descripcion; it.precio=num(p.precio); it.iva=num(p.iva)||10.5;
+  if(p){ it.codigo=p.codigo; it.descripcion=p.descripcion; it.precio=num(p.precio); it.iva=CZ.mercado==='ME'?0:(num(p.iva)||10.5);
     if(!CZ.titulo) CZ.titulo=nombre;
     if(p.moneda && p.moneda!==CZ.moneda) toast('Ojo: este ítem tiene precio de lista en '+p.moneda,true); czRows(); }
 }
@@ -964,17 +1021,17 @@ function czCalc(){
   const t=totales(CZ.items), m=CZ.moneda, n=num(CZ.cuotas);
   CZ.items.forEach((it,i)=>{ const e=$('#czBon'+i); if(e) e.textContent=num(it.bonif)>0?money(precioBon(it),m):'—'; });
   $('#czTot').innerHTML = `<div><span>Precio de lista</span><b>${money(t.lista,m)}</b></div>${t.descuento?`<div><span>Bonificación</span><b>− ${money(t.descuento,m)}</b></div>`:''}
-    <div class="big"><span>Neto</span><span>${money(t.neto,m)}</span></div><div class="muted small"><span>+ IVA</span><span>${money(t.iva,m)}</span></div>
-    <div class="muted small"><span>Total con IVA</span><span>${money(t.conIva,m)}</span></div>
+    <div class="big"><span>${CZ.mercado==='ME'?'Total FCA':'Neto'}</span><span>${money(t.neto,m)}</span></div>${CZ.mercado==='ME'?'<div class="muted small"><span>Exportación</span><span>sin IVA</span></div>':`<div class="muted small"><span>+ IVA</span><span>${money(t.iva,m)}</span></div>
+    <div class="muted small"><span>Total con IVA</span><span>${money(t.conIva,m)}</span></div>`}
     ${n?`<div style="margin-top:6px"><span>${n} cuotas de</span><b>${money(t.neto/n,m)} + IVA</b></div>`:''}`;
 }
 function czData(){
-  const items=CZ.items.filter(it=>it.nombre||it.descripcion||num(it.precio)).map(it=>Object.assign({},it,{cantidad:1}));
+  const items=CZ.items.filter(it=>it.nombre||it.descripcion||num(it.precio)).map(it=>Object.assign({},it,{cantidad:1},CZ.mercado==='ME'?{iva:0}:{}));
   const t=totales(items);
   const titulo=CZ.titulo.trim()||items.map(x=>x.nombre).filter(Boolean).join(' + ');
   return {consulta_id:CZ.consultaId,moneda:CZ.moneda,items,subtotal:t.lista,descuento:t.descuento,iva:t.iva,total:t.neto,
     condiciones_pago:CZ.condiciones_pago,plazo_entrega:CZ.plazo_entrega,validez_dias:num(CZ.validez_dias),garantia:CZ.garantia,lugar_entrega:CZ.lugar_entrega,notas:CZ.notas,
-    extras_json:JSON.stringify({titulo,bonif_hasta:CZ.bonif_hasta,cuotas:num(CZ.cuotas),mostrar_cuota:CZ.mostrar_cuota,incluir_fin:CZ.incluir_fin,financiacion:CZ.financiacion,firma:CZ.firma})};
+    extras_json:JSON.stringify({titulo,bonif_hasta:CZ.bonif_hasta,cuotas:CZ.mercado==='ME'?0:num(CZ.cuotas),mostrar_cuota:CZ.mostrar_cuota,incluir_fin:CZ.mercado==='ME'?false:CZ.incluir_fin,financiacion:CZ.financiacion,firma:CZ.firma,mercado:CZ.mercado,pago_b:CZ.pago_b,origen:CZ.origen})};
 }
 function descargarBlob(blob,nombre){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=String(nombre).replace(/[\\/:*?"<>|]/g,'')+'.pdf';
@@ -984,7 +1041,7 @@ async function czPreview(descargar){
   const d=czData(); if(!d.items.length) return toast('Agregá al menos un ítem',true);
   busy(true);
   try{ const blob=await pdfBlob(pdfDef(d,S.db.consultas.find(x=>x.id===CZ.consultaId),'BORRADOR',hoy()));
-    if(descargar) return descargarBlob(blob,'BORRADOR '+JSON.parse(d.extras_json).titulo);
+    if(descargar) return descargarBlob(blob,nombreArchivo('BORRADOR',S.db.consultas.find(x=>x.id===CZ.consultaId),JSON.parse(d.extras_json).titulo,CZ.mercado));
     const w=window.open(URL.createObjectURL(blob),'_blank'); if(!w) toast('Permití ventanas emergentes para ver el PDF',true); }
   catch(e){ toast('⚠ No se pudo generar el PDF: '+e.message,true); } finally{ busy(false); }
 }
@@ -1011,7 +1068,7 @@ async function czGuardar(){
     busy(true); let blob; try{ blob=await pdfBlob(pdfDef(d,c,cot.id,editando?hoy():(d10(cot.fecha)||hoy()))); } finally{ busy(false); }
     const b64=await leerB64(blob);
     const titulo=JSON.parse(d.extras_json).titulo;
-    const up={id:cot.id,consulta_id:cot.consulta_id,silencioso:true,file_b64:b64,file_mime:'application/pdf',file_name:(cot.id+' '+titulo).replace(/[\\/:*?"<>|]/g,'').slice(0,120)+'.pdf'};
+    const up={id:cot.id,consulta_id:cot.consulta_id,silencioso:true,file_b64:b64,file_mime:'application/pdf',file_name:nombreArchivo(cot.id,c,titulo,CZ.mercado)+'.pdf'};
     if(S.demo) up._fileUrl=URL.createObjectURL(blob);
     const r2=await call('saveCotizacion',up,editando?'Cotización '+cot.id+' actualizada ✔ (PDF reemplazado)':'Cotización '+cot.id+' generada ✔');
     upsert(S.db.cotizaciones,r2.cotizacion); upsert(S.db.consultas,r2.consulta);
@@ -1028,7 +1085,8 @@ function pdfDef(d,c,numero,fecha){ return C('PDF_ESTILO').toLowerCase()==='clasi
 /* ---------- Estilo MODERNO: cotización ordenada, con tarjetas y resumen ---------- */
 function pdfDefModerno(d,c,numero,fecha){
   const ex=JSON.parse(d.extras_json||'{}'), m=d.moneda, sym=m==='ARS'?'$':'U$S', monTxt=m==='ARS'?'pesos argentinos':'dólares estadounidenses';
-  const t=totales(d.items), n=num(ex.cuotas), W=515;
+  const ME=ex.mercado==='ME';
+  const t=totales(d.items), n=ME?0:num(ex.cuotas), W=515;
   const AZ='#3f5f86', AZO='#24364d', CL='#eef3f8', GR='#6b7280', LN='#d5dde7', OK='#1f7a4d';
   const limpio=s=>String(s||'').replace(/\s*\(texto \d{3}-\d{4}\)\s*$/,'').trim();
   const P=v=>`${sym} ${fmtP(v)}`;
@@ -1045,7 +1103,7 @@ function pdfDefModerno(d,c,numero,fecha){
     const iv=String(num(it.iva)).replace('.',','), bon=num(it.bonif)>0;
     const precios=[[{stack:[{text:'PRECIO DE LISTA',fontSize:6.8,bold:true,color:GR,characterSpacing:0.5},{text:P(it.precio),noWrap:true,alignment:'right',fontSize:bon?9.5:12,bold:!bon,decoration:bon?'lineThrough':undefined,color:bon?GR:AZO,margin:[0,1,0,0]}]}]];
     if(bon) precios.push([{stack:[{text:`BONIFICADO −${num(it.bonif)}%`,fontSize:6.8,bold:true,color:OK,characterSpacing:0.5},{text:P(precioBon(it)),noWrap:true,alignment:'right',bold:true,fontSize:12.5,color:OK,margin:[0,1,0,0]}]}]);
-    precios.push([{text:`+ IVA ${iv}%`,color:GR,fontSize:7.8,alignment:'right'}]);
+    precios.push([{text:ME?'Dólares estadounidenses':`+ IVA ${iv}%`,color:GR,fontSize:7.8,alignment:'right'}]);
     items.push({unbreakable:String(it.descripcion||'').length<900, margin:[0,0,0,10], table:{widths:['*'],body:[
       [{fillColor:AZ,margin:[10,5,10,5],columns:[{text:`ÍTEM ${i+1}`,bold:true,color:'#cfe0f3',fontSize:8,width:44,margin:[0,1.5,0,0]},{text:limpio(it.nombre)||'—',bold:true,color:'#fff',fontSize:10.5}]}],
       [{margin:[10,8,10,8],columns:[
@@ -1056,9 +1114,9 @@ function pdfDefModerno(d,c,numero,fecha){
   if(d.items.some(x=>num(x.bonif)>0)) items.push({text:`* Precios bonificados válidos para ventas concretadas hasta el ${fdLarga(ex.bonif_hasta||finDeMes())}.`,italics:true,fontSize:8,color:GR,margin:[0,-2,0,4]});
 
   // ---- Resumen
-  const res=[[{text:'#',style:'th'},{text:'Equipo / adicional',style:'th'},{text:'Lista',style:'th',alignment:'right'},{text:'Bonif.',style:'th',alignment:'center'},{text:'Precio final',style:'th',alignment:'right'},{text:'IVA',style:'th',alignment:'center'}]];
-  d.items.forEach((it,i)=>res.push([String(i+1),limpio(it.nombre),{text:P(it.precio),alignment:'right',color:GR},{text:num(it.bonif)?num(it.bonif)+'%':'—',alignment:'center'},{text:P(precioBon(it)),alignment:'right',bold:true},{text:String(num(it.iva)).replace('.',',')+'%',alignment:'center',color:GR}]));
-  res.push([{text:''},{text:d.items.length>1?'TOTAL (todos los ítems)':'TOTAL',bold:true,color:AZO},{text:''},{text:''},{text:P(t.neto),noWrap:true,alignment:'right',bold:true,color:AZO,fontSize:10.5},{text:'+ IVA',alignment:'center',color:GR,fontSize:8}]);
+  const res=[[{text:'#',style:'th'},{text:'Equipo / adicional',style:'th'},{text:'Lista',style:'th',alignment:'right'},{text:'Bonif.',style:'th',alignment:'center'},{text:ME?'Precio FCA':'Precio final',style:'th',alignment:'right'},{text:ME?'':'IVA',style:'th',alignment:'center'}]];
+  d.items.forEach((it,i)=>res.push([String(i+1),limpio(it.nombre),{text:P(it.precio),alignment:'right',color:GR},{text:num(it.bonif)?num(it.bonif)+'%':'—',alignment:'center'},{text:P(precioBon(it)),alignment:'right',bold:true},{text:ME?'':String(num(it.iva)).replace('.',',')+'%',alignment:'center',color:GR}]));
+  res.push([{text:''},{text:d.items.length>1?'TOTAL (todos los ítems)':'TOTAL',bold:true,color:AZO},{text:''},{text:''},{text:P(t.neto),noWrap:true,alignment:'right',bold:true,color:AZO,fontSize:10.5},{text:ME?'':'+ IVA',alignment:'center',color:GR,fontSize:8}]);
 
   // ---- Formas de pago (tarjetas lado a lado)
   const finLines=String(ex.financiacion||'').split('\n').map(s=>s.trim()).filter(Boolean);
@@ -1074,6 +1132,17 @@ function pdfDefModerno(d,c,numero,fecha){
   // ---- Condiciones
   const cond=[];
   const fila=(k,v)=>cond.push([{text:k,bold:true,color:AZO,fontSize:8.5},{text:v,fontSize:8.5,color:'#1f2937'}]);
+  if(ME){
+    fila('Condición de venta',d.lugar_entrega);
+    fila('Plazo de fabricación',d.plazo_entrega);
+    fila('Forma de pago A',d.condiciones_pago);
+    if(ex.pago_b) fila('Forma de pago B',ex.pago_b);
+    fila('Garantía',d.garantia);
+    fila('Validez de la oferta',`${num(d.validez_dias)||15} días (hasta el ${fdLarga(vence)}).`);
+    if(ex.origen) fila('Origen',ex.origen);
+    fila('Pruebas',C('ME_PRUEBA'));
+    if(d.notas) fila('Observaciones',d.notas);
+  } else {
   fila('Formas de pago',(n?`Opción 1: ${n} cuotas sin interés, contadas a partir de la confirmación de la compra.\nOpción 2: `:'')+d.condiciones_pago+(m!=='ARS'?'\n'+C('PESIFICACION'):'')+'\nConsultar por otro tipo de financiaciones bancarias.');
   fila('Lugar de entrega',d.lugar_entrega);
   fila('Plazo de entrega',d.plazo_entrega);
@@ -1081,8 +1150,9 @@ function pdfDefModerno(d,c,numero,fecha){
   fila('Validez de la oferta',`${num(d.validez_dias)||15} días (hasta el ${fdLarga(vence)}).`);
   fila('Pruebas',C('TEXTO_PRUEBA'));
   if(d.notas) fila('Observaciones',d.notas);
+  }
 
-  const dom=[c.localidad,c.provincia].filter(Boolean).join(', ');
+  const dom=[c.localidad,c.provincia].filter(x=>x&&x!=='Exterior').join(', ');
   return {
     pageSize:'A4', pageMargins:[40,112,40,70],
     // evita títulos de sección huérfanos al pie de la hoja
@@ -1101,8 +1171,8 @@ function pdfDefModerno(d,c,numero,fecha){
     footer:(cur,tot)=>({margin:[40,8,40,0],stack:[
       {canvas:[{type:'line',x1:0,y1:0,x2:W,y2:0,lineWidth:0.6,lineColor:LN}]},
       {margin:[0,6,0,0],columns:[{image:IMG_ISO,width:70},
-        {width:'*',margin:[10,6,0,0],stack:[{text:C('EMPRESA_NOMBRE'),italics:true,fontSize:7.8,color:GR},{text:C('PIE_ISO'),fontSize:7.8,color:GR}]},
-        {width:90,alignment:'right',margin:[0,6,0,0],stack:[{text:C('FORM_CODIGO'),fontSize:7,color:GR},{text:`Hoja ${cur} de ${tot}`,fontSize:8.5,bold:true,color:AZO}]}]}]}),
+        {width:'*',margin:[10,6,0,0],stack:[{text:C('EMPRESA_NOMBRE'),italics:true,fontSize:7.8,color:GR},{text:C(ME?'ME_PIE_ISO':'PIE_ISO'),fontSize:7.8,color:GR}]},
+        {width:90,alignment:'right',margin:[0,6,0,0],stack:[{text:C(ME?'ME_FORM_CODIGO':'FORM_CODIGO'),fontSize:7,color:GR},{text:`Hoja ${cur} de ${tot}`,fontSize:8.5,bold:true,color:AZO}]}]}]}),
     content:[
       // Título + datos de la cotización
       {columns:[
@@ -1114,7 +1184,7 @@ function pdfDefModerno(d,c,numero,fecha){
       // Cliente
       seccion('CLIENTE'),
       {table:{widths:['*','*'],body:[[
-        {stack:[lbl('Empresa'),val(c.empresa||c.contacto,true),lbl('CUIT'),val(c.cuit),lbl('Domicilio'),val(dom)]},
+        {stack:[lbl('Empresa'),val(c.empresa||c.contacto,true),lbl(ME?'RUT / Tax ID':'CUIT'),val(c.cuit),lbl(ME?'Ciudad / País':'Domicilio'),val(dom)]},
         {stack:[lbl('Atención'),val(c.contacto,true),lbl('Teléfono'),val(c.telefono),lbl('E-mail'),val(c.email)]}]]},
        layout:{hLineWidth:()=>0.6,vLineWidth:(i)=>i===1?0.6:0.6,hLineColor:()=>LN,vLineColor:()=>LN,paddingLeft:()=>10,paddingRight:()=>10,paddingTop:()=>8,paddingBottom:()=>3}},
       {text:'De nuestra consideración: a continuación le estamos cotizando:',margin:[0,14,0,0],fontSize:9.4},
@@ -1122,7 +1192,7 @@ function pdfDefModerno(d,c,numero,fecha){
       ...items,
       seccion('RESUMEN DE PRECIOS'),
       {table:{headerRows:1,widths:[14,'*',72,38,84,32],body:res},layout:Object.assign({},lineas,{fillColor:(i,node)=>i===node.table.body.length-1?CL:null}),fontSize:9},
-      {text:`Precios expresados en ${monTxt}. IVA no incluido.`,fontSize:7.8,color:GR,margin:[0,4,0,0]},
+      {text:ME?`Precios expresados en dólares estadounidenses, condición FCA Rosario, Argentina.`:`Precios expresados en ${monTxt}. IVA no incluido.`,fontSize:7.8,color:GR,margin:[0,4,0,0]},
       pagosBloque?seccion('FORMAS DE PAGO'):null,
       pagosBloque,
       seccion('CONDICIONES GENERALES'),
@@ -1139,7 +1209,8 @@ function pdfDefModerno(d,c,numero,fecha){
 /* ---------- Estilo CLÁSICO: igual al formato Word F-7.2.05 ---------- */
 function pdfDefClasico(d,c,numero,fecha){
   const ex=JSON.parse(d.extras_json||'{}'), m=d.moneda, sym=m==='ARS'?'$':'U$S', monTxt=m==='ARS'?'(pesos argentinos)':'(dólares estadounidenses)';
-  const t=totales(d.items), n=num(ex.cuotas), W=527;
+  const ME=ex.mercado==='ME';
+  const t=totales(d.items), n=ME?0:num(ex.cuotas), W=527;
   const line=(dash)=>({canvas:[{type:'line',x1:0,y1:0,x2:W,y2:0,lineWidth:0.6,lineColor:dash?'#444':'#b0b0b0',dash:dash?{length:2,space:1.5}:undefined}],margin:[0,10,0,10]});
   const box=(content,h)=>({unbreakable:true,margin:[0,16,0,6],stack:[{stack:content,relativePosition:{x:16,y:12}},{canvas:[{type:'rect',x:0,y:0,w:445,h,r:14,lineColor:'#9a9a9a',lineWidth:0.8}]}]});
   const U=(txt)=>[{text:txt,decoration:'underline'},':'];
@@ -1148,14 +1219,28 @@ function pdfDefClasico(d,c,numero,fecha){
     const iv=String(num(it.iva)).replace('.',','), bon=num(it.bonif)>0;
     if(i>0) items.push(line(true));
     items.push({text:it.descripcion||it.nombre,margin:[0,0,0,12]});
-    items.push({columns:[{text:'PRECIO:',bold:true,width:132},{text:`${sym} ${fmtP(it.precio)}`,bold:true,width:82,decoration:bon?'lineThrough':undefined},{text:`más IVA  (${iv}%)  ${monTxt}`,bold:true,width:'*'}],margin:[0,0,0,10]});
+    items.push({columns:[{text:'PRECIO:',bold:true,width:132},{text:`${sym} ${fmtP(it.precio)}`,bold:true,width:82,decoration:bon?'lineThrough':undefined},{text:ME?monTxt:`más IVA  (${iv}%)  ${monTxt}`,bold:true,width:'*'}],margin:[0,0,0,10]});
     if(bon){
-      items.push({columns:[{text:'(*) Precio bonificado:',bold:true,width:132},{text:`${sym} ${fmtP(precioBon(it))}`,bold:true,width:82},{text:`mas IVA  (${iv}%)  ${monTxt}`,bold:true,width:'*'}],margin:[0,0,0,8]});
+      items.push({columns:[{text:'(*) Precio bonificado:',bold:true,width:132},{text:`${sym} ${fmtP(precioBon(it))}`,bold:true,width:82},{text:ME?monTxt:`mas IVA  (${iv}%)  ${monTxt}`,bold:true,width:'*'}],margin:[0,0,0,8]});
       items.push({text:`*(Para ventas concretadas hasta el ${fdLarga(ex.bonif_hasta||finDeMes())})`,italics:true,bold:true,fontSize:7.5});
     }
   });
   const finLines=String(ex.financiacion||'').split('\n').map(s=>s.trim()).filter(Boolean);
-  const cond=[
+  const condME=[
+    {text:[{text:'CONDICIONES GENERALES',bold:true,decoration:'underline'},{text:':',bold:true}],margin:[0,22,0,12]},
+    {text:d.lugar_entrega,margin:[0,0,0,10]},
+    {text:'Plazo de fabricación: '+d.plazo_entrega,margin:[0,0,0,10]},
+    {text:[{text:'FORMA DE PAGO A: ',bold:true},d.condiciones_pago],margin:[0,0,0,10]},
+    ex.pago_b?{text:[{text:'FORMA DE PAGO B: ',bold:true},ex.pago_b],margin:[0,0,0,10]}:null,
+    {text:[{text:'GARANTÍA: ',bold:true},d.garantia],margin:[0,0,0,10]},
+    {text:[{text:'VALIDEZ DE LA OFERTA: ',bold:true},`${num(d.validez_dias)||15} días.`],margin:[0,0,0,10]},
+    ex.origen?{text:[{text:'Origen: ',bold:true},ex.origen],margin:[0,0,0,10]}:null,
+    d.notas?{text:[{text:'Observaciones: ',bold:true},d.notas],margin:[0,0,0,10]}:null,
+    {text:C('ME_PRUEBA'),margin:[0,0,0,10]},
+    {text:C('TEXTO_CIERRE')},
+    {text:ex.firma||'',bold:true,margin:[0,30,0,0]}
+  ].filter(Boolean);
+  const cond=ME?condME:[
     {text:[{text:'CONDICIONES GENERALES',bold:true,decoration:'underline'},{text:':',bold:true}],margin:[0,22,0,12]},
     {text:U('Formas de pago')},
     n?{text:`Opción 1: ${n} cuotas sin interés, contadas a partir de la confirmación de la compra.`}:null,
@@ -1171,7 +1256,7 @@ function pdfDefClasico(d,c,numero,fecha){
     {text:C('TEXTO_CIERRE')},
     {text:ex.firma||'',bold:true,margin:[0,30,0,0]}
   ].filter(Boolean);
-  const dom=[c.localidad,c.provincia].filter(Boolean).join(', ');
+  const dom=[c.localidad,c.provincia].filter(x=>x&&x!=='Exterior').join(', ');
   const L=(a,b,bold)=>[{text:a},{text:b||'',bold:!!bold}];
   return {
     pageSize:'A4', pageMargins:[40,130,28,64],
@@ -1188,13 +1273,13 @@ function pdfDefClasico(d,c,numero,fecha){
     footer:(cur,tot)=>({margin:[8,4,28,0],columns:[
       {image:IMG_ISO,width:96},
       {width:'*',margin:[10,4,0,0],stack:[{text:C('EMPRESA_NOMBRE'),italics:true,color:'#9a9a9a',fontSize:9.4},{canvas:[{type:'line',x1:0,y1:2,x2:425,y2:2,lineWidth:0.5,lineColor:'#9a9a9a'}]},
-        {columns:[{text:C('PIE_ISO'),color:'#9a9a9a',fontSize:9.4,margin:[0,5,0,0]},{text:`Hoja ${cur} de ${tot}`,color:'#9a9a9a',fontSize:9.4,width:60,alignment:'right',margin:[0,5,0,0]}]}]},
-      {text:C('FORM_CODIGO'),color:'#9a9a9a',fontSize:6.5,width:0.1,margin:[-58,4,0,0]}]}),
+        {columns:[{text:C(ME?'ME_PIE_ISO':'PIE_ISO'),color:'#9a9a9a',fontSize:9.4,margin:[0,5,0,0]},{text:`Hoja ${cur} de ${tot}`,color:'#9a9a9a',fontSize:9.4,width:60,alignment:'right',margin:[0,5,0,0]}]}]},
+      {text:C(ME?'ME_FORM_CODIGO':'FORM_CODIGO'),color:'#9a9a9a',fontSize:6.5,width:0.1,margin:[-58,4,0,0]}]}),
     content:[
       {table:{widths:[60,232,82,'*'],body:[
         [...L('Empresa:',c.empresa||c.contacto,true),{text:'Lugar y Fecha:',fontSize:9.8},{text:`${C('CIUDAD')}, ${fechaLarga(fecha)}`,fontSize:8.6,margin:[0,1,0,0]}],
-        [...L('Cuit:',c.cuit),'',''],
-        [...L('Domicilio:',dom),'',''],
+        [...L(ME?'RUT:':'Cuit:',c.cuit),'',''],
+        [...L(ME?'Ciudad:':'Domicilio:',dom),'',''],
         [...L('Teléfono:',c.telefono),{text:'Cotización Nº:',fontSize:9.8},{text:numero,bold:true}],
         [...L('E-mail:',c.email),'',''],
         [...L('Atención:',c.contacto,true),'','']]},
@@ -1247,7 +1332,7 @@ function plantilla(txt,cot,c){
 function envio(cotId,recienCreada){
   const cot=S.db.cotizaciones.find(x=>x.id===cotId), c=S.db.consultas.find(x=>x.id===cot.consulta_id);
   const wa=waNum(c.telefono);
-  const msgWa=`Hola ${c.contacto||''}, ¿cómo estás? Te paso la cotización ${cot.id} de ${C('EMPRESA_NOMBRE')} ${num(cot.total)?' por '+money(cot.total,cot.moneda)+' + IVA':''}.${cot.pdf_url?'\n\n📄 '+cot.pdf_url:''}\n\nCualquier duda quedo a disposición. Saludos, ${S.user}.`;
+  const msgWa=`Hola ${c.contacto||''}, ¿cómo estás? Te paso la cotización ${cot.id} de ${C('EMPRESA_NOMBRE')} ${num(cot.total)?' por '+money(cot.total,cot.moneda)+ivaTxt(cot):''}.${cot.pdf_url?'\n\n📄 '+cot.pdf_url:''}\n\nCualquier duda quedo a disposición. Saludos, ${S.user}.`;
   modal(`${recienCreada?'✔ Cotización '+esc(cot.id)+' lista — ':''}Enviar al cliente`, `
     <div class="switch" id="envTab" style="margin-bottom:12px"><button class="on" onclick="envTab(0)">✉️ Por email (con PDF adjunto)</button><button onclick="envTab(1)">💬 Por WhatsApp</button></div>
     <div id="env0" style="display:flex;flex-direction:column;gap:10px">
