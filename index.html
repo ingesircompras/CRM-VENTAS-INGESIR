@@ -357,7 +357,7 @@ function renderTop(){
   const t = $('#top'); if(!t) return;
   const alertas = S.db.consultas.filter(c=>(venc(c)||esHoy(c)) && c.asignado===S.user).length;
   const nuevasSin = S.db.consultas.filter(c=>c.estado==='Nueva' && !c.asignado).length;
-  const tabs = [['hoy','Mi día',alertas+nuevasSin],['tablero','Tablero'],['lista','Lista'],['metricas','Métricas'],['catalogo','Catálogo']];
+  const tabs = [['hoy','Mi día',alertas+nuevasSin],['tablero','Tablero'],['lista','Lista'],['cotizaciones','Cotizaciones'],['metricas','Métricas'],['catalogo','Catálogo']];
   t.innerHTML = `<div class="brand"><img src="${S.logo||IMG_LOGO}" alt=""> <small>Ventas</small>${S.demo?'<span class="demo-flag">DEMO</span>':''}</div>
     <nav class="nav">${tabs.map(([k,l,b])=>`<button class="${S.view===k?'on':''}" onclick="ir('${k}')">${l}${b?`<span class="badge">${b}</span>`:''}</button>`).join('')}</nav>
     <button class="userchip" title="Cambiar usuario" onclick="renderUserPick()">👤 ${esc(S.user)}</button>
@@ -368,7 +368,7 @@ function ir(v){ S.view=v; LS.set('view',v); renderTop(); render(); window.scroll
 async function refrescar(){ if(await cargar()){ renderTop(); render(); if(S.open) abrirConsulta(S.open,true); toast('Datos actualizados'); } }
 function render(){
   const m = $('#main'); if(!m) return;
-  ({hoy:viewHoy,tablero:viewTablero,lista:viewLista,metricas:viewMetricas,catalogo:viewCatalogo}[S.view]||viewHoy)(m);
+  ({hoy:viewHoy,tablero:viewTablero,lista:viewLista,cotizaciones:viewCotizaciones,metricas:viewMetricas,catalogo:viewCatalogo}[S.view]||viewHoy)(m);
 }
 function refreshAll(){ renderTop(); render(); if(S.open) abrirConsulta(S.open,true); }
 
@@ -479,6 +479,29 @@ function exportCSV(){
   const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""').replace(/\r?\n/g,' ')+'"';
   const csv='﻿'+cols.join(';')+'\n'+filtrarLista().map(c=>cols.map(k=>q(k.includes('fecha')?d10(c[k]):c[k])).join(';')).join('\n');
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})); a.download='consultas_'+hoy()+'.csv'; a.click();
+}
+
+/* ============================ COTIZACIONES ========================== */
+let CQ='';
+function viewCotizaciones(m){
+  m.innerHTML=`<div class="row" style="margin-bottom:10px"><h2 class="grow" style="margin:0">Últimas cotizaciones</h2>
+    <input class="inp" style="max-width:320px" placeholder="🔎 Buscar N°, cliente o equipo…" value="${esc(CQ)}" oninput="CQ=this.value;pintarCots()"></div>
+    <p class="muted small" style="margin-top:0">Se muestran las últimas 15. Con <b>✏️ Editar</b> se corrige o se le agregan ítems a una cotización ya hecha: mantiene el número, regenera el PDF y reemplaza la versión anterior en la misma carpeta de Drive.</p>
+    <div class="tbl-wrap" id="cqw"></div>`;
+  pintarCots();
+}
+function pintarCots(){
+  const q=CQ.toLowerCase().trim();
+  let rows=S.db.cotizaciones.slice().sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha))||String(b.id).localeCompare(String(a.id)));
+  if(q) rows=rows.filter(x=>{const c=S.db.consultas.find(y=>y.id===x.consulta_id)||{}; return [x.id,tituloDe(x),c.empresa,c.contacto].join(' ').toLowerCase().includes(q);});
+  rows=rows.slice(0,q?50:15);
+  $('#cqw').innerHTML=`<table class="tbl"><thead><tr><th>N°</th><th>Fecha</th><th>Cliente</th><th>Equipo</th><th class="num">Monto</th><th>Estado</th><th></th></tr></thead><tbody>
+    ${rows.map(x=>{const c=S.db.consultas.find(y=>y.id===x.consulta_id)||{}; return `<tr>
+      <td><b>${esc(x.id)}</b></td><td>${fd(x.fecha)}</td><td onclick="abrirConsulta('${c.id}')" style="cursor:pointer"><b>${esc(nombreDe(c))}</b><div class="muted small">${esc(c.empresa?c.contacto:'')}</div></td>
+      <td class="small">${esc(tituloDe(x))}</td><td class="num">${num(x.total)?moneyK(x.total,x.moneda)+' <span class="muted small">+IVA</span>':'—'}</td>
+      <td class="small">${pendienteReenvio(x)?'<span style="color:var(--warn);font-weight:700">⚠ Modificada, falta reenviar</span>':x.enviada_fecha?'✔ Enviada '+fd(x.enviada_fecha):'<span class="muted">Sin enviar</span>'}</td>
+      <td style="white-space:nowrap">${x.pdf_url||x._fileUrl?`<button class="btn sm" onclick="verPDF('${x.id}')">👁</button> `:''}${esEditable(x)?`<button class="btn sm" onclick="cotizador('${x.consulta_id}','${x.id}','editar')">✏️ Editar</button> `:''}<button class="btn sm pri" onclick="envio('${x.id}')">📤</button></td></tr>`;}).join('')}
+    ${rows.length?'':'<tr><td colspan="7" class="muted" style="text-align:center;padding:20px">Sin cotizaciones</td></tr>'}</tbody></table>`;
 }
 
 /* =============================== MÉTRICAS =========================== */
@@ -678,8 +701,10 @@ async function abrirConsulta(id,keepScroll){
       <div class="panel"><div class="row"><div class="small muted grow" style="font-weight:700">COTIZACIONES</div><button class="btn sm acc" onclick="cotizador('${id}')">+ Nueva cotización</button></div>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
         ${cots.length?cots.map(x=>`<div class="cot"><div class="grow"><b>${esc(x.id)}</b> <span class="muted small">· ${fd(x.fecha)} · ${esc(x.creado_por||'')}</span><div>${num(x.total)?money(x.total,x.moneda)+' <span class="muted small">+ IVA</span>':'<span class="muted small">sin monto cargado</span>'} <span class="muted small">${esc((()=>{try{return JSON.parse(x.extras_json||'{}').titulo||JSON.parse(x.items_json||'[]').map(i=>i.nombre).join(' + ')}catch(e){return ''}})())}</span></div>
-            <div class="small ${x.enviada_fecha?'':'muted'}">${x.enviada_fecha?'✔ Enviada '+fd(x.enviada_fecha)+' a '+esc(x.enviada_a):'No enviada todavía'}</div></div>
+            <div class="small ${x.enviada_fecha?'':'muted'}">${x.enviada_fecha?'✔ Enviada '+fd(x.enviada_fecha)+' a '+esc(x.enviada_a):'No enviada todavía'}${extrasDe(x).modificada?' · ✏️ modificada '+fdt(extrasDe(x).modificada):''}</div>
+            ${pendienteReenvio(x)?'<div class="small" style="color:var(--warn);font-weight:700">⚠ Se modificó después de enviarla: reenviala al cliente</div>':''}</div>
             ${x.pdf_url||x._fileUrl?`<button class="btn sm" onclick="verPDF('${x.id}')">👁 PDF</button>`:''}
+            ${esEditable(x)?`<button class="btn sm" onclick="cotizador('${id}','${x.id}','editar')" title="Corregir o agregar ítems. Mantiene el número y reemplaza el PDF">✏️ Editar</button>`:''}
             <button class="btn sm" onclick="adjuntar('${x.id}')" title="Subir/reemplazar el PDF o Word de esta cotización">📎 Adjuntar</button>
             <button class="btn sm pri" onclick="envio('${x.id}')">📤 Enviar</button>
             <button class="btn sm" onclick="cotizador('${id}','${x.id}','rev')" title="Crea ${x.numero}-R${Number(x.revision)+1} manteniendo la original">↻ Revisión</button>
@@ -755,6 +780,10 @@ async function confirmarCierre(id,estado){
 }
 
 /* =============================== COTIZADOR ========================== */
+const extrasDe = x => { try{ return JSON.parse(x.extras_json||'{}'); }catch(e){ return {}; } };
+const tituloDe = x => { const e=extrasDe(x); try{ return e.titulo||JSON.parse(x.items_json||'[]').map(i=>i.nombre).join(' + '); }catch(_){ return e.titulo||''; } };
+const esEditable = x => extrasDe(x).cuotas!==undefined;           // armada en el sistema (no subida como archivo)
+const pendienteReenvio = x => { const m=extrasDe(x).modificada; return !!(m && x.enviada_fecha && String(m) > String(x.enviada_fecha)); };
 // Textos por defecto del formato F-7.2.05 (se pueden cambiar en la hoja CONFIG)
 const DEF = {
   EMPRESA_NOMBRE:'INGESIR envasadoras s.r.l.', EMPRESA_RUBRO:'FÁBRICA DE MÁQUINAS ENVASADORAS AUTOMÁTICAS',
@@ -802,8 +831,8 @@ function cotizador(consultaId,baseId,modo){
     validez_dias:B('validez_dias',C('VALIDEZ_DIAS')), garantia:B('garantia',C('GARANTIA')),
     lugar_entrega:B('lugar_entrega',C('LUGAR_ENTREGA')), notas:B('notas',''), firma:ex.firma||firmaDe(S.user)};
   if(base && base.notas==='Importada de la planilla') CZ.notas='';
-  const titulo = modo==='rev'?'Nueva revisión de '+base.numero : modo==='copia'?'Nueva cotización (copia de '+base.id+')':'Nueva cotización';
-  CZ.subir = modo==='rev'||modo==='copia' ? false : LS.get('czSubir',false);
+  const titulo = modo==='editar'?'✏️ Editar cotización '+base.id : modo==='rev'?'Nueva revisión de '+base.numero : modo==='copia'?'Nueva cotización (copia de '+base.id+')':'Nueva cotización';
+  CZ.subir = modo==='rev'||modo==='copia'||modo==='editar' ? false : LS.get('czSubir',false);
   const T=(k,rows)=>`<textarea rows="${rows}" oninput="CZ.${k}=this.value">${esc(CZ[k])}</textarea>`;
   modal(`📄 ${titulo} — ${esc(nombreDe(c))}`, `
     <div class="switch" id="czModo" style="margin-bottom:14px"><button onclick="czModo(false)">🧮 Armar en el sistema (formato INGESIR)</button><button onclick="czModo(true)">📎 Subir PDF / Word ya hecho</button></div>
@@ -940,17 +969,24 @@ async function czGuardar(){
   if(!window.pdfMake) return toast('No cargó el generador de PDF (revisá la conexión a internet)',true);
   const c=S.db.consultas.find(x=>x.id===CZ.consultaId);
   if(CZ.modo==='rev') d.revision_de=S.db.cotizaciones.find(x=>x.id===CZ.baseId).numero;
+  const editando = CZ.modo==='editar';
+  if(editando){
+    const base=S.db.cotizaciones.find(x=>x.id===CZ.baseId);
+    if(base.enviada_fecha && !confirm(`La ${base.id} ya se envió el ${fd(base.enviada_fecha)}.\nSe va a reemplazar por esta versión (mismo número). Después reenviala al cliente.\n\n¿Continuar?`)) return;
+    d.id=base.id;
+    const ex=JSON.parse(d.extras_json); ex.modificada=new Date().toISOString().slice(0,19); d.extras_json=JSON.stringify(ex);
+  }
   $('#czSaveBtn').disabled=true;
   try{
     // 1) se guarda y el servidor asigna el número  2) se arma el PDF con ese número y se adjunta
     const r=await call('saveCotizacion',d);
     const cot=r.cotizacion;
-    busy(true); let blob; try{ blob=await pdfBlob(pdfDef(d,c,cot.id,d10(cot.fecha)||hoy())); } finally{ busy(false); }
+    busy(true); let blob; try{ blob=await pdfBlob(pdfDef(d,c,cot.id,editando?hoy():(d10(cot.fecha)||hoy()))); } finally{ busy(false); }
     const b64=await leerB64(blob);
     const titulo=JSON.parse(d.extras_json).titulo;
     const up={id:cot.id,consulta_id:cot.consulta_id,silencioso:true,file_b64:b64,file_mime:'application/pdf',file_name:(cot.id+' '+titulo).replace(/[\\/:*?"<>|]/g,'').slice(0,120)+'.pdf'};
     if(S.demo) up._fileUrl=URL.createObjectURL(blob);
-    const r2=await call('saveCotizacion',up,'Cotización '+cot.id+' generada ✔');
+    const r2=await call('saveCotizacion',up,editando?'Cotización '+cot.id+' actualizada ✔ (PDF reemplazado)':'Cotización '+cot.id+' generada ✔');
     upsert(S.db.cotizaciones,r2.cotizacion); upsert(S.db.consultas,r2.consulta);
     cerrarModal(); refreshAll(); envio(cot.id,true);
   }catch(e){ const b=$('#czSaveBtn'); if(b) b.disabled=false; }
@@ -1294,7 +1330,11 @@ const Demo = (()=>{
     saveCotizacion:d=>{
       const c=get(d.consulta_id);
       const ex=d.id&&db.cotizaciones.find(x=>x.id===d.id);
-      if(ex){ if(d._fileUrl) ex._fileUrl=d._fileUrl; if(!d.silencioso) log(c.id,d.usuario,'cotizacion','Archivo adjuntado a '+ex.id); return {cotizacion:ex,consulta:c}; } const cot=Object.assign({},d); delete cot.items; delete cot.html; delete cot.usuario; delete cot.revision_de;
+      if(ex){
+        if(d._fileUrl) ex._fileUrl=d._fileUrl;
+        if(d.items){ const k=Object.assign({},d); ['items','usuario','file_b64','file_name','file_mime','_fileUrl','silencioso','id'].forEach(z=>delete k[z]); Object.assign(ex,k); ex.items_json=JSON.stringify(d.items); c.monto_estimado=ex.total; log(c.id,d.usuario,'cotizacion','Cotización '+ex.id+' modificada · '+money(ex.total,ex.moneda)+' + IVA'); }
+        else if(!d.silencioso) log(c.id,d.usuario,'cotizacion','Archivo adjuntado a '+ex.id);
+        return {cotizacion:ex,consulta:c}; } const cot=Object.assign({},d); delete cot.items; delete cot.html; delete cot.usuario; delete cot.revision_de;
       if(d.revision_de){ cot.numero=d.revision_de; cot.revision=db.cotizaciones.filter(x=>x.numero===d.revision_de).reduce((m,x)=>Math.max(m,+x.revision||0),0)+1; }
       else { const yy=hoy().slice(2,4), re=new RegExp('^0'+yy+'-(\\d{4})'); const mx=db.cotizaciones.reduce((m,r)=>{const x=String(r.numero).match(re); return x?Math.max(m,+x[1]):m},0); cot.numero='0'+yy+'-'+String(mx+1).padStart(4,'0'); cot.revision=0; }
       delete cot.file_b64; delete cot.file_name; delete cot.file_mime; delete cot._fileUrl; if(d._fileUrl) cot._fileUrl=d._fileUrl;
