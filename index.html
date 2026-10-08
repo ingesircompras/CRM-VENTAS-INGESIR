@@ -842,14 +842,14 @@ function cotizador(consultaId,baseId,modo){
       </div>
     </div>
     <datalist id="dlProd2">${S.db.productos.map(p=>`<option value="${esc(p.nombre)}">${num(p.precio)?money(p.precio,p.moneda)+' + IVA':''}</option>`).join('')}</datalist>`,
-    `<button class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn" id="czPrevBtn" onclick="czPreview()">👁 Vista previa PDF</button><button class="btn acc" id="czSaveBtn" onclick="czGuardar()">💾 Guardar y generar PDF</button>`, true);
+    `<button class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn" id="czPrevBtn" onclick="czPreview()">👁 Vista previa PDF</button><button class="btn" id="czDlBtn" onclick="czPreview(true)" title="Descarga el borrador con nombre (no se guarda en Drive)">⬇ Descargar borrador</button><button class="btn acc" id="czSaveBtn" onclick="czGuardar()">💾 Guardar y generar PDF</button>`, true);
   czRows(); czModo(CZ.subir);
 }
 function czModo(sub){
   CZ.subir=sub; LS.set('czSubir',sub);
   document.querySelectorAll('#czModo button').forEach((b,i)=>b.classList.toggle('on',(i===1)===sub));
   $('#czSubirBox').classList.toggle('hidden',!sub); $('#czArmarBox').classList.toggle('hidden',sub);
-  $('#czPrevBtn').classList.toggle('hidden',sub); $('#czSaveBtn').textContent=sub?'💾 Guardar cotización':'💾 Guardar y generar PDF';
+  $('#czPrevBtn').classList.toggle('hidden',sub); $('#czDlBtn').classList.toggle('hidden',sub); $('#czSaveBtn').textContent=sub?'💾 Guardar cotización':'💾 Guardar y generar PDF';
 }
 const leerB64 = f => new Promise((res,rej)=>{const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]); r.onerror=rej; r.readAsDataURL(f);});
 async function czGuardarArchivo(){
@@ -920,10 +920,16 @@ function czData(){
     condiciones_pago:CZ.condiciones_pago,plazo_entrega:CZ.plazo_entrega,validez_dias:num(CZ.validez_dias),garantia:CZ.garantia,lugar_entrega:CZ.lugar_entrega,notas:CZ.notas,
     extras_json:JSON.stringify({titulo,bonif_hasta:CZ.bonif_hasta,cuotas:num(CZ.cuotas),mostrar_cuota:CZ.mostrar_cuota,incluir_fin:CZ.incluir_fin,financiacion:CZ.financiacion,firma:CZ.firma})};
 }
-async function czPreview(){
+function descargarBlob(blob,nombre){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=String(nombre).replace(/[\\/:*?"<>|]/g,'')+'.pdf';
+  document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},2000);
+}
+async function czPreview(descargar){
   const d=czData(); if(!d.items.length) return toast('Agregá al menos un ítem',true);
   busy(true);
-  try{ const blob=await pdfBlob(pdfDef(d,S.db.consultas.find(x=>x.id===CZ.consultaId),'BORRADOR',hoy())); const w=window.open(URL.createObjectURL(blob),'_blank'); if(!w) toast('Permití ventanas emergentes para ver el PDF',true); }
+  try{ const blob=await pdfBlob(pdfDef(d,S.db.consultas.find(x=>x.id===CZ.consultaId),'BORRADOR',hoy()));
+    if(descargar) return descargarBlob(blob,'BORRADOR '+JSON.parse(d.extras_json).titulo);
+    const w=window.open(URL.createObjectURL(blob),'_blank'); if(!w) toast('Permití ventanas emergentes para ver el PDF',true); }
   catch(e){ toast('⚠ No se pudo generar el PDF: '+e.message,true); } finally{ busy(false); }
 }
 async function czGuardar(){
@@ -1054,7 +1060,7 @@ async function pdfBlob(def){
 function verPDF(cotId){
   const x=S.db.cotizaciones.find(y=>y.id===cotId);
   if(x.pdf_url) window.open(x.pdf_url,'_blank');
-  else if(x._fileUrl) window.open(x._fileUrl,'_blank');
+  else if(x._fileUrl){ fetch(x._fileUrl).then(r=>r.blob()).then(b=>descargarBlob(b,x.id+' '+((()=>{try{return JSON.parse(x.extras_json||'{}').titulo||''}catch(e){return ''}})()))).catch(()=>window.open(x._fileUrl,'_blank')); }
   else toast('Esta cotización no tiene archivo (usá 📎 Adjuntar)',true);
 }
 
