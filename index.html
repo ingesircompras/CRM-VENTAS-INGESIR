@@ -761,7 +761,7 @@ const DEF = {
   EMPRESA_DIRECCION:'Av. Francia 1771 - Tel: +54 341 4328379', EMPRESA_DIRECCION2:'(S2003ICA) Rosario - Santa Fe - Argentina',
   EMPRESA_EMAIL:'envasadoras@ingesir.com.ar', EMPRESA_WEB:'www.ingesir.com.ar', CIUDAD:'Rosario',
   FORM_CODIGO:'F-7.2.05 Rev 1', PIE_ISO:'Empresa con Sistema de Gestión de la Calidad certificado ISO 9001:2015',
-  CUOTAS:'6', VALIDEZ_DIAS:'15',
+  CUOTAS:'6', VALIDEZ_DIAS:'15', PDF_ESTILO:'moderno',
   FINANCIACION:'BANCO NACIÓN (Pymenación o  BNA Conecta): Tasa Fija TNA 28% hasta 36 meses (**)\nBANCO CREDICOOP: Tasa Fija TNA 35% hasta 36 meses (**)\n(**) Consultar por tasa vigente al momento de realizar la operación.',
   COND_PAGO:'Anticipo del 30% al encargar la máquina y  saldo del 70% restante contra la entrega, abonado previo a retirar la máquina de fábrica, ante la comprobación de su correcto funcionamiento por parte del cliente.',
   PESIFICACION:'Los precios serán pesificados al momento de la acreditación de los pagos según cotización Banco Nación tipo vendedor cotización Billetes.',
@@ -961,7 +961,120 @@ const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','
 const fechaLarga = iso => { const [y,m,d]=d10(iso).split('-'); return `${+d} de ${MESES[+m-1]} de ${y}`; };
 const fdLarga = iso => { const [y,m,d]=d10(iso).split('-'); return `${d}/${m}/${y}`; };
 function fmtP(n){ const r=Math.round(num(n)*100)/100; return Number.isInteger(r) ? r.toLocaleString('es-AR')+'.-' : r.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function pdfDef(d,c,numero,fecha){
+function pdfDef(d,c,numero,fecha){ return C('PDF_ESTILO').toLowerCase()==='clasico' ? pdfDefClasico(d,c,numero,fecha) : pdfDefModerno(d,c,numero,fecha); }
+/* ---------- Estilo MODERNO: cotización ordenada, con tarjetas y resumen ---------- */
+function pdfDefModerno(d,c,numero,fecha){
+  const ex=JSON.parse(d.extras_json||'{}'), m=d.moneda, sym=m==='ARS'?'$':'U$S', monTxt=m==='ARS'?'pesos argentinos':'dólares estadounidenses';
+  const t=totales(d.items), n=num(ex.cuotas), W=515;
+  const AZ='#3f5f86', AZO='#24364d', CL='#eef3f8', GR='#6b7280', LN='#d5dde7', OK='#1f7a4d';
+  const limpio=s=>String(s||'').replace(/\s*\(texto \d{3}-\d{4}\)\s*$/,'').trim();
+  const P=v=>`${sym} ${fmtP(v)}`;
+  const vence=addDays(d10(fecha),num(d.validez_dias)||15);
+  const lbl=t=>({text:t.toUpperCase(),fontSize:7,bold:true,color:GR,characterSpacing:0.6});
+  const val=(t,b)=>({text:String(t||'').replace(/\s{2,}/g,' ').trim()||'—',fontSize:9.6,bold:!!b,color:'#111827',margin:[0,1,0,5]});
+  const seccion=(t)=>({headlineLevel:1,margin:[0,13,0,6],columns:[{width:4,canvas:[{type:'rect',x:0,y:1,w:4,h:12,color:AZ}]},{text:t,bold:true,fontSize:10.5,color:AZO,margin:[7,0,0,0],characterSpacing:0.5}]});
+  const card=(body,fill)=>({table:{widths:['*'],body:[[{stack:body,fillColor:fill||CL,margin:[12,10,12,8]}]]},layout:{hLineWidth:()=>0,vLineWidth:()=>0,paddingLeft:()=>0,paddingRight:()=>0,paddingTop:()=>0,paddingBottom:()=>0}});
+  const lineas={hLineWidth:(i,node)=>(i===0||i===node.table.body.length)?0:0.5,vLineWidth:()=>0,hLineColor:()=>LN,paddingLeft:()=>6,paddingRight:()=>6,paddingTop:()=>4,paddingBottom:()=>4};
+
+  // ---- Ítems
+  const items=[];
+  d.items.forEach((it,i)=>{
+    const iv=String(num(it.iva)).replace('.',','), bon=num(it.bonif)>0;
+    const precios=[[{stack:[{text:'PRECIO DE LISTA',fontSize:6.8,bold:true,color:GR,characterSpacing:0.5},{text:P(it.precio),noWrap:true,alignment:'right',fontSize:bon?9.5:12,bold:!bon,decoration:bon?'lineThrough':undefined,color:bon?GR:AZO,margin:[0,1,0,0]}]}]];
+    if(bon) precios.push([{stack:[{text:`BONIFICADO −${num(it.bonif)}%`,fontSize:6.8,bold:true,color:OK,characterSpacing:0.5},{text:P(precioBon(it)),noWrap:true,alignment:'right',bold:true,fontSize:12.5,color:OK,margin:[0,1,0,0]}]}]);
+    precios.push([{text:`+ IVA ${iv}%`,color:GR,fontSize:7.8,alignment:'right'}]);
+    items.push({unbreakable:String(it.descripcion||'').length<900, margin:[0,0,0,10], table:{widths:['*'],body:[
+      [{fillColor:AZ,margin:[10,5,10,5],columns:[{text:`ÍTEM ${i+1}`,bold:true,color:'#cfe0f3',fontSize:8,width:44,margin:[0,1.5,0,0]},{text:limpio(it.nombre)||'—',bold:true,color:'#fff',fontSize:10.5}]}],
+      [{margin:[10,8,10,8],columns:[
+        {width:'*',text:it.descripcion||'',fontSize:8.9,lineHeight:1.08,color:'#1f2937'},
+        {width:122,margin:[12,0,0,0],table:{widths:['*'],body:precios},layout:{hLineWidth:(i,node)=>i===node.table.body.length-1?0.5:0,vLineWidth:()=>0,hLineColor:()=>LN,paddingLeft:()=>6,paddingRight:()=>6,paddingTop:()=>4,paddingBottom:()=>4,fillColor:()=>CL}}]}]
+    ]},layout:{hLineWidth:(i)=>i===2?0.6:0,vLineWidth:(i)=>0.6,hLineColor:()=>LN,vLineColor:()=>LN,paddingLeft:()=>0,paddingRight:()=>0,paddingTop:()=>0,paddingBottom:()=>0}});
+  });
+  if(d.items.some(x=>num(x.bonif)>0)) items.push({text:`* Precios bonificados válidos para ventas concretadas hasta el ${fdLarga(ex.bonif_hasta||finDeMes())}.`,italics:true,fontSize:8,color:GR,margin:[0,-2,0,4]});
+
+  // ---- Resumen
+  const res=[[{text:'#',style:'th'},{text:'Equipo / adicional',style:'th'},{text:'Lista',style:'th',alignment:'right'},{text:'Bonif.',style:'th',alignment:'center'},{text:'Precio final',style:'th',alignment:'right'},{text:'IVA',style:'th',alignment:'center'}]];
+  d.items.forEach((it,i)=>res.push([String(i+1),limpio(it.nombre),{text:P(it.precio),alignment:'right',color:GR},{text:num(it.bonif)?num(it.bonif)+'%':'—',alignment:'center'},{text:P(precioBon(it)),alignment:'right',bold:true},{text:String(num(it.iva)).replace('.',',')+'%',alignment:'center',color:GR}]));
+  res.push([{text:''},{text:d.items.length>1?'TOTAL (todos los ítems)':'TOTAL',bold:true,color:AZO},{text:''},{text:''},{text:P(t.neto),noWrap:true,alignment:'right',bold:true,color:AZO,fontSize:10.5},{text:'+ IVA',alignment:'center',color:GR,fontSize:8}]);
+
+  // ---- Formas de pago (tarjetas lado a lado)
+  const finLines=String(ex.financiacion||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  const pagos=[];
+  if(n) pagos.push(card([lbl('Opción en cuotas'),
+    {text:`${n} cuotas sin interés`,bold:true,fontSize:13,color:AZO,margin:[0,4,0,2]},
+    ex.mostrar_cuota!==false?{text:[{text:`de ${P(Math.round(t.neto/n*100)/100)}`,bold:true,color:OK},{text:' + IVA',color:GR}],fontSize:10.5}:{text:'en el total de la compra',fontSize:9.5},
+    ex.mostrar_cuota!==false?{text:`Total de la operación: ${P(t.neto)} + IVA`,fontSize:8.2,color:GR,margin:[0,3,0,0]}:null,
+    {text:'Contadas a partir de la confirmación de la compra.',fontSize:8.2,color:GR,margin:[0,2,0,0]}].filter(Boolean)));
+  if(ex.incluir_fin&&finLines.length) pagos.push(card([lbl('Financiación bancaria'),...finLines.map(l=>({text:l.replace(/\s{2,}/g,' '),fontSize:l.startsWith('(**)')?7.8:8.8,bold:!l.startsWith('(**)'),color:l.startsWith('(**)')?GR:'#111827',margin:[0,4,0,0]}))]));
+  const pagosBloque=pagos.length===2?{columns:[{width:'*',stack:[pagos[0]]},{width:10,text:''},{width:'*',stack:[pagos[1]]}],unbreakable:true}:pagos.length?{stack:pagos,unbreakable:true}:null;
+
+  // ---- Condiciones
+  const cond=[];
+  const fila=(k,v)=>cond.push([{text:k,bold:true,color:AZO,fontSize:8.5},{text:v,fontSize:8.5,color:'#1f2937'}]);
+  fila('Formas de pago',(n?`Opción 1: ${n} cuotas sin interés, contadas a partir de la confirmación de la compra.\nOpción 2: `:'')+d.condiciones_pago+(m!=='ARS'?'\n'+C('PESIFICACION'):'')+'\nConsultar por otro tipo de financiaciones bancarias.');
+  fila('Lugar de entrega',d.lugar_entrega);
+  fila('Plazo de entrega',d.plazo_entrega);
+  fila('Garantía',d.garantia);
+  fila('Validez de la oferta',`${num(d.validez_dias)||15} días (hasta el ${fdLarga(vence)}).`);
+  fila('Pruebas',C('TEXTO_PRUEBA'));
+  if(d.notas) fila('Observaciones',d.notas);
+
+  const dom=[c.localidad,c.provincia].filter(Boolean).join(', ');
+  return {
+    pageSize:'A4', pageMargins:[40,112,40,70],
+    // evita títulos de sección huérfanos al pie de la hoja
+    pageBreakBefore:(cur)=>cur.headlineLevel===1 && cur.startPosition && cur.startPosition.top>690,
+    defaultStyle:{font:PDF_FONT,fontSize:9.4,lineHeight:1.05,color:'#1f2937'},
+    styles:{th:{bold:true,fontSize:8,color:'#fff',fillColor:AZ}},
+    info:{title:`Cotización ${numero}`,author:C('EMPRESA_NOMBRE')},
+    header:()=>({margin:[40,24,40,0],stack:[
+      {columns:[{image:IMG_LOGO,width:128},
+        {width:'*',alignment:'right',stack:[
+          {text:C('EMPRESA_NOMBRE'),bold:true,fontSize:12.5,color:AZO},
+          {text:C('EMPRESA_RUBRO'),bold:true,fontSize:7.6,color:AZ,margin:[0,2,0,4],characterSpacing:0.4},
+          {text:C('EMPRESA_DIRECCION'),fontSize:7.8,color:GR},{text:C('EMPRESA_DIRECCION2'),fontSize:7.8,color:GR},
+          {text:`${C('EMPRESA_EMAIL')}  ·  ${C('EMPRESA_WEB')}`,fontSize:7.8,color:AZ}]}]},
+      {canvas:[{type:'rect',x:0,y:8,w:W,h:2.2,color:AZ}]}]}),
+    footer:(cur,tot)=>({margin:[40,8,40,0],stack:[
+      {canvas:[{type:'line',x1:0,y1:0,x2:W,y2:0,lineWidth:0.6,lineColor:LN}]},
+      {margin:[0,6,0,0],columns:[{image:IMG_ISO,width:70},
+        {width:'*',margin:[10,6,0,0],stack:[{text:C('EMPRESA_NOMBRE'),italics:true,fontSize:7.8,color:GR},{text:C('PIE_ISO'),fontSize:7.8,color:GR}]},
+        {width:90,alignment:'right',margin:[0,6,0,0],stack:[{text:C('FORM_CODIGO'),fontSize:7,color:GR},{text:`Hoja ${cur} de ${tot}`,fontSize:8.5,bold:true,color:AZO}]}]}]}),
+    content:[
+      // Título + datos de la cotización
+      {columns:[
+        {width:'*',stack:[{text:'COTIZACIÓN',fontSize:22,bold:true,color:AZO,characterSpacing:1},{text:`${C('CIUDAD')}, ${fechaLarga(fecha)}`,fontSize:9,color:GR,margin:[0,2,0,0]}]},
+        {width:200,table:{widths:['*','*'],body:[
+          [{stack:[lbl('Cotización Nº'),{text:numero,bold:true,fontSize:12,color:AZO}]},{stack:[lbl('Válida hasta'),{text:fdLarga(vence),bold:true,fontSize:10,margin:[0,1.5,0,0]}]}],
+          [{stack:[lbl('Moneda'),{text:m==='ARS'?'Pesos (ARS)':'Dólares (USD)',fontSize:9}]},{stack:[lbl('Atendido por'),{text:ex.firma||'',fontSize:9}]}]]},
+         layout:{hLineWidth:()=>0,vLineWidth:()=>0,fillColor:()=>CL,paddingLeft:()=>8,paddingRight:()=>6,paddingTop:()=>5,paddingBottom:()=>4}}]},
+      // Cliente
+      seccion('CLIENTE'),
+      {table:{widths:['*','*'],body:[[
+        {stack:[lbl('Empresa'),val(c.empresa||c.contacto,true),lbl('CUIT'),val(c.cuit),lbl('Domicilio'),val(dom)]},
+        {stack:[lbl('Atención'),val(c.contacto,true),lbl('Teléfono'),val(c.telefono),lbl('E-mail'),val(c.email)]}]]},
+       layout:{hLineWidth:()=>0.6,vLineWidth:(i)=>i===1?0.6:0.6,hLineColor:()=>LN,vLineColor:()=>LN,paddingLeft:()=>10,paddingRight:()=>10,paddingTop:()=>8,paddingBottom:()=>3}},
+      {text:'De nuestra consideración: a continuación le estamos cotizando:',margin:[0,14,0,0],fontSize:9.4},
+      seccion('DETALLE DE LO COTIZADO'),
+      ...items,
+      seccion('RESUMEN DE PRECIOS'),
+      {table:{headerRows:1,widths:[14,'*',72,38,84,32],body:res},layout:Object.assign({},lineas,{fillColor:(i,node)=>i===node.table.body.length-1?CL:null}),fontSize:9},
+      {text:`Precios expresados en ${monTxt}. IVA no incluido.`,fontSize:7.8,color:GR,margin:[0,4,0,0]},
+      pagosBloque?seccion('FORMAS DE PAGO'):null,
+      pagosBloque,
+      seccion('CONDICIONES GENERALES'),
+      {table:{widths:[95,'*'],body:cond},layout:lineas},
+      {text:C('TEXTO_CIERRE'),margin:[0,12,0,0],fontSize:9.4},
+      {unbreakable:true,margin:[0,22,0,0],stack:[
+        {canvas:[{type:'line',x1:0,y1:0,x2:170,y2:0,lineWidth:0.6,lineColor:AZO}]},
+        {text:ex.firma||'',bold:true,margin:[0,4,0,0],color:AZO},
+        {text:C('EMPRESA_NOMBRE'),fontSize:8.5,color:GR}]}
+    ].filter(Boolean)
+  };
+}
+
+/* ---------- Estilo CLÁSICO: igual al formato Word F-7.2.05 ---------- */
+function pdfDefClasico(d,c,numero,fecha){
   const ex=JSON.parse(d.extras_json||'{}'), m=d.moneda, sym=m==='ARS'?'$':'U$S', monTxt=m==='ARS'?'(pesos argentinos)':'(dólares estadounidenses)';
   const t=totales(d.items), n=num(ex.cuotas), W=527;
   const line=(dash)=>({canvas:[{type:'line',x1:0,y1:0,x2:W,y2:0,lineWidth:0.6,lineColor:dash?'#444':'#b0b0b0',dash:dash?{length:2,space:1.5}:undefined}],margin:[0,10,0,10]});
