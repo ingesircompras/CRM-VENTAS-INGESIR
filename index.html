@@ -972,7 +972,7 @@ function czFirmaHTML(){
   const esLista=ops.some(o=>o.firma===CZ.firma);
   return `<label class="f">Firma (quien cotiza)
     <select onchange="if(this.value==='__otra'){CZ.firma='';document.getElementById('czFirmaOtra').classList.remove('hidden');document.getElementById('czFirmaOtra').focus();}else{CZ.firma=this.value;document.getElementById('czFirmaOtra').classList.add('hidden');}">
-      ${ops.map(o=>`<option value="${esc(o.firma)}" ${o.firma===CZ.firma?'selected':''}>${esc(o.firma)}${o.firma!==o.nombre?' ('+esc(o.nombre)+')':''}</option>`).join('')}
+      ${ops.map(o=>`<option value="${esc(o.firma)}" ${o.firma===CZ.firma?'selected':''}>${esc(o.firma)}</option>`).join('')}
       <option value="__otra" ${esLista?'':'selected'}>✏️ Otra firma…</option>
     </select>
     <input id="czFirmaOtra" class="${esLista?'hidden':''}" value="${esLista?'':esc(CZ.firma)}" placeholder="Ej: Ing. Nombre Apellido" oninput="CZ.firma=this.value" style="margin-top:4px">
