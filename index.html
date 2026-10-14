@@ -895,7 +895,7 @@ function cotizador(consultaId,baseId,modo){
     incluir_fin:ex.incluir_fin!==undefined?ex.incluir_fin:true, financiacion:ex.financiacion||C('FINANCIACION'),
     condiciones_pago:B('condiciones_pago',C('COND_PAGO')), plazo_entrega:B('plazo_entrega',C('PLAZO_ENTREGA')),
     validez_dias:B('validez_dias',C('VALIDEZ_DIAS')), garantia:B('garantia',C('GARANTIA')),
-    lugar_entrega:B('lugar_entrega',C('LUGAR_ENTREGA')), notas:B('notas',''), firma:ex.firma||firmaDe(S.user),
+    lugar_entrega:B('lugar_entrega',C('LUGAR_ENTREGA')), notas:B('notas',''), firma:ex.firma||firmaDe(c.asignado||S.user),
     mercado: ex.mercado || (c.provincia==='Exterior'?'ME':'MI'), pago_b: ex.pago_b||C('ME_PAGO_B'), origen: ex.origen||C('ME_ORIGEN')};
   if(!base && CZ.mercado==='ME') czAplicarMercado('ME',true);
   if(base && base.notas==='Importada de la planilla') CZ.notas='';
@@ -933,6 +933,18 @@ function cotizador(consultaId,baseId,modo){
     `<button class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn" id="czPrevBtn" onclick="czPreview()">👁 Vista previa PDF</button><button class="btn" id="czDlBtn" onclick="czPreview(true)" title="Descarga el borrador con nombre (no se guarda en Drive)">⬇ Descargar borrador</button><button class="btn acc" id="czSaveBtn" onclick="czGuardar()">💾 Guardar y generar PDF</button>`, true);
   czRows(); czModo(CZ.subir);
 }
+/** Firma: desplegable con el equipo (por defecto el responsable de la consulta) + opción de escribir otra. */
+function czFirmaHTML(){
+  const ops=S.db.usuarios.map(u=>({nombre:u.nombre,firma:u.firma||u.nombre}));
+  const esLista=ops.some(o=>o.firma===CZ.firma);
+  return `<label class="f">Firma (quien cotiza)
+    <select onchange="if(this.value==='__otra'){CZ.firma='';document.getElementById('czFirmaOtra').classList.remove('hidden');document.getElementById('czFirmaOtra').focus();}else{CZ.firma=this.value;document.getElementById('czFirmaOtra').classList.add('hidden');}">
+      ${ops.map(o=>`<option value="${esc(o.firma)}" ${o.firma===CZ.firma?'selected':''}>${esc(o.firma)}${o.firma!==o.nombre?' ('+esc(o.nombre)+')':''}</option>`).join('')}
+      <option value="__otra" ${esLista?'':'selected'}>✏️ Otra firma…</option>
+    </select>
+    <input id="czFirmaOtra" class="${esLista?'hidden':''}" value="${esLista?'':esc(CZ.firma)}" placeholder="Ej: Ing. Nombre Apellido" oninput="CZ.firma=this.value" style="margin-top:4px">
+  </label>`;
+}
 function czCondHTML(){
   const T=(k,rows)=>`<textarea rows="${rows}" oninput="CZ.${k}=this.value">${esc(CZ[k])}</textarea>`;
   const comun=`<label class="f">Validez de la oferta (días)<input type="number" value="${esc(CZ.validez_dias)}" oninput="CZ.validez_dias=this.value"></label>
@@ -946,7 +958,7 @@ function czCondHTML(){
     <label class="f span2">Origen${T('origen',2)}</label>
     ${comun}
     <label class="f span2">Observaciones (opcional)${T('notas',2)}</label>
-    <label class="f">Firma<input value="${esc(CZ.firma)}" oninput="CZ.firma=this.value"></label>`;
+    ${czFirmaHTML()}`;
   return `
     <label class="f">Cuotas sin interés<select onchange="CZ.cuotas=this.value;czCalc()">${['0','3','6','9','12'].map(n=>`<option value="${n}" ${String(CZ.cuotas)===n?'selected':''}>${n==='0'?'Sin cuotas':n+' cuotas'}</option>`).join('')}</select></label>
     ${comun}
@@ -957,7 +969,7 @@ function czCondHTML(){
     <label class="f">Lugar de entrega<input value="${esc(CZ.lugar_entrega)}" oninput="CZ.lugar_entrega=this.value"></label>
     <label class="f span2">Garantía${T('garantia',2)}</label>
     <label class="f span2">Observaciones (opcional, aparece en condiciones)${T('notas',2)}</label>
-    <label class="f">Firma<input value="${esc(CZ.firma)}" oninput="CZ.firma=this.value" placeholder="Ing. Nombre Apellido"></label>`;
+    ${czFirmaHTML()}`;
 }
 /** Cambia entre mercado interno y externo y carga las condiciones por defecto de cada uno. */
 function czAplicarMercado(k,silencioso){
