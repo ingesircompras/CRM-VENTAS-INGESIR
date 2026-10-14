@@ -273,13 +273,13 @@ function upsert(list,obj,key='id'){const i=list.findIndex(x=>x[key]===obj[key]);
 /* =============================== API ================================ */
 async function api(action,data={}){
   if(S.demo) return Demo.run(action, JSON.parse(JSON.stringify(data)));
-  const r = await fetch(S.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action,key:S.key,data})});
+  const r = await fetch(S.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(Object.assign({action,data},S.key?{key:S.key}:{usuario:S.user,pin:S.pin}))});
   const j = await r.json();
   if(j.moved && j.moved!==S.url && !api._saltos){   // el sistema se mudó de Drive: reconexión automática
     S.url=j.moved; LS.set('url_movida',j.moved); LS.set('url',j.moved);
     api._saltos=1; try{ return await api(action,data); } finally{ api._saltos=0; }
   }
-  if(!j.ok) throw new Error(j.error||'Error del servidor');
+  if(!j.ok){ const err=new Error(j.error||'Error del servidor'); if(j.auth) err.auth=true; throw err; }
   return j.data;
 }
 async function call(action,data,okMsg){
@@ -310,14 +310,46 @@ async function init(){
   S.key = LS.get('key','');
   S.demo = LS.get('demo',false);
   S.user = LS.get('user','');
+  S.pin = LS.get('pin','');
   S.soloMias = LS.get('soloMias',true);
   S.view = LS.get('view','hoy');
-  if(!S.demo && (!S.url || !S.key)) return renderLogin();
+  if(!S.demo){
+    if(!S.url) return renderLogin();
+    if(!S.key && !(S.user && S.pin)) return renderPinLogin();
+  }
   const ok = await cargar();
-  if(!ok){ return renderLogin(); }
+  if(!ok){ return S.key ? renderLogin() : renderPinLogin(); }
   if(!S.user || !S.db.usuarios.some(u=>u.nombre===S.user)) return renderUserPick();
   renderApp();
 }
+
+/* -------- Ingreso con nombre + PIN (cada cotizador tiene el suyo) -------- */
+async function renderPinLogin(){
+  $('#root').innerHTML = `<div class="center"><div class="login"><h1>INGESIR · Ventas</h1><div class="muted">Elegí tu nombre</div>
+    <div class="users" id="pinUsers"><div class="muted small">Cargando…</div></div>
+    <div class="row" style="margin-top:16px;justify-content:space-between"><button class="btn sm" onclick="renderLogin()">Entrar con clave general</button><button class="btn sm" onclick="entrarDemo()">Modo demo</button></div></div></div>`;
+  try{
+    const r=await fetch(S.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'usuarios'})});
+    const j=await r.json();
+    if(j.moved){ S.url=j.moved; LS.set('url_movida',j.moved); LS.set('url',j.moved); return renderPinLogin(); }
+    $('#pinUsers').innerHTML = j.data.map(u=>`<button onclick="${u.conPin?`pedirPin('${esc(u.nombre)}')`:`toast('${esc(u.nombre)} todavía no tiene PIN: pedile a administración que lo cargue en la hoja USUARIOS',true)`}">${esc(u.nombre)}${u.conPin?'':'<div class="small muted">sin PIN</div>'}</button>`).join('');
+  }catch(e){ $('#pinUsers').innerHTML='<div class="muted small">No se pudo conectar. Revisá internet y recargá.</div>'; }
+}
+function pedirPin(nombre){
+  $('#root').innerHTML = `<div class="center"><div class="login" style="max-width:340px;text-align:center">
+    <h1>Hola ${esc(nombre.split(' ')[0])}</h1><div class="muted">Ingresá tu PIN</div>
+    <input id="pinIn" type="password" inputmode="numeric" autocomplete="current-password" maxlength="8" class="inp" style="font-size:28px;text-align:center;letter-spacing:10px;margin:16px 0" onkeydown="if(event.key==='Enter')entrarPin('${esc(nombre)}')">
+    <button class="btn pri" style="width:100%" onclick="entrarPin('${esc(nombre)}')">Entrar</button>
+    <div style="margin-top:12px"><button class="btn sm" onclick="renderPinLogin()">← Volver</button></div></div></div>`;
+  setTimeout(()=>$('#pinIn').focus(),50);
+}
+async function entrarPin(nombre){
+  const pin=$('#pinIn').value.trim(); if(!pin) return;
+  S.user=nombre; S.pin=pin; S.key=''; S.demo=false;
+  if(await cargar()){ LS.set('user',nombre); LS.set('pin',pin); LS.set('demo',false); LS.del('key'); renderApp(); }
+  else { S.pin=''; const i=$('#pinIn'); if(i){ i.value=''; i.focus(); } }
+}
+function cerrarSesion(){ LS.del('pin'); LS.del('user'); S.pin=''; S.user=''; if(S.key) return renderUserPick(); renderPinLogin(); }
 
 function renderLogin(){
   $('#root').innerHTML = `<div class="center"><div class="login">
@@ -337,7 +369,8 @@ async function conectar(){
   if(await cargar()){ LS.set('url',S.url); LS.set('key',S.key); LS.set('demo',false); renderUserPick(); }
 }
 async function entrarDemo(){ S.demo=true; LS.set('demo',true); await cargar(); renderUserPick(); }
-function salir(){ LS.del('key'); LS.del('demo'); LS.del('user'); location.reload(); }
+
+function salir(){ LS.del('key'); LS.del('demo'); LS.del('user'); LS.del('pin'); location.reload(); }
 
 function renderUserPick(){
   $('#root').innerHTML = `<div class="center"><div class="login">
@@ -360,7 +393,7 @@ function renderTop(){
   const tabs = [['hoy','Mi día',alertas+nuevasSin],['tablero','Tablero'],['lista','Lista'],['cotizaciones','Cotizaciones'],['metricas','Métricas'],['catalogo','Catálogo']];
   t.innerHTML = `<div class="brand"><img src="${S.logo||IMG_LOGO}" alt=""> <small>Ventas</small>${S.demo?'<span class="demo-flag">DEMO</span>':''}</div>
     <nav class="nav">${tabs.map(([k,l,b])=>`<button class="${S.view===k?'on':''}" onclick="ir('${k}')">${l}${b?`<span class="badge">${b}</span>`:''}</button>`).join('')}</nav>
-    <button class="userchip" title="Cambiar usuario" onclick="renderUserPick()">👤 ${esc(S.user)}</button>
+    <button class="userchip" title="Cambiar de usuario / cerrar sesión" onclick="${S.key||S.demo?'renderUserPick()':'if(confirm(\'¿Cerrar sesión de \'+S.user+\'?\'))cerrarSesion()'}">👤 ${esc(S.user)}</button>
     <button class="userchip" title="Actualizar datos" onclick="refrescar()">⟳</button>
     <button class="btn-new" onclick="formConsulta()">+ Nueva consulta</button>`;
 }
