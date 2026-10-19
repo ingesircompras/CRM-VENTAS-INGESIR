@@ -865,7 +865,10 @@ async function confirmarCierre(id,estado){
 }
 
 /* =============================== COTIZADOR ========================== */
-const extrasDe = x => { try{ return JSON.parse(x.extras_json||'{}'); }catch(e){ return {}; } };
+const extrasDe = x => { let e; try{ e=JSON.parse(x.extras_json||'{}'); }catch(_){ e={}; }
+  // Cotizaciones de MI guardadas antes de este cambio traían por error el origen de exportación
+  if(e.mercado!=='ME' && e.origen && /FABRICACIÓN ARGENTINA/.test(e.origen)) delete e.origen;
+  return e; };
 const tituloDe = x => { const e=extrasDe(x); try{ return e.titulo||JSON.parse(x.items_json||'[]').map(i=>i.nombre).join(' + '); }catch(_){ return e.titulo||''; } };
 const mercadoDe = x => extrasDe(x).mercado==='ME'?'ME':'MI';
 const ivaTxt = x => mercadoDe(x)==='ME'?'':' + IVA';
@@ -894,12 +897,17 @@ const DEF = {
   ME_PAGO_A:'Anticipo del 30% al encargar el equipo. Saldo del 70% restante previo a embarcar el equipo en fábrica, contra verificación por parte del comprador de su correcto funcionamiento.',
   ME_PAGO_B:'Carta de crédito confirmada e irrevocable, a la vista, emitida a n/ favor, por vía del banco que se determine oportunamente.',
   ME_GARANTIA:'1 año contra todo defecto de fabricación, consiste en la sustitución de piezas mecánicas que presenten defectos. Sustitución de piezas en condición FCA Rosario. No se incluyen los defectos producidos por el uso inadecuado del equipo o su mala conservación. Ingesir traslada al comprador las garantías que cubren los componentes fabricados por terceros.',
-  ME_ORIGEN:'Equipo 100% DE FABRICACIÓN ARGENTINA, con stock de piezas y asistencia técnica constante e inmediata garantizadas.',
+  ME_ORIGEN:'Equipo **100% DE FABRICACIÓN ARGENTINA**, diseñado y fabricado por INGESIR envasadoras s.r.l. en su planta de Rosario, Santa Fe, Argentina, con stock de piezas y asistencia técnica constante e inmediata garantizadas.',
+  ORIGEN:'Equipo **100% DE FABRICACIÓN NACIONAL**, con stock de piezas y asistencia técnica constante garantizadas.',
   ME_PRUEBA:'La máquina será probada con producto en n/ fábrica, con asistencia del personal técnico de la firma compradora, complementándose al mismo tiempo la verificación de su correcto funcionamiento y la instrucción de uso del equipo por parte de dicho personal.',
   ME_FORM_CODIGO:'F-7.2.05 Rev.1',
   ME_PIE_ISO:'Empresa con Sistema de Gestión de la Calidad certificado ISO 9001:2015'
 };
-const C = k => (S.db.config[k]!==undefined && String(S.db.config[k]).trim()!=='') ? String(S.db.config[k]) : (DEF[k]||'');
+const TXT_VIEJOS = {ME_ORIGEN:['Equipo 100% DE FABRICACIÓN ARGENTINA, con stock de piezas y asistencia técnica constante e inmediata garantizadas.']};
+const C = k => { const v=S.db.config[k]; return (v!==undefined && String(v).trim()!=='' && !(TXT_VIEJOS[k]||[]).includes(String(v).trim())) ? String(v) : (DEF[k]||''); };
+/** Texto con **negrita** → partes para pdfmake. */
+const rico = (t,extra) => String(t||'').split('**').map((x,i)=>Object.assign({text:x},i%2?{bold:true}:{},extra||{})).filter(x=>x.text);
+const sinMarcas = t => String(t||'').replace(/\*\*/g,'');
 const finDeMes = () => {const d=new Date(); return isoOf(new Date(d.getFullYear(),d.getMonth()+1,0));};
 const firmaDe = u => { const x=S.db.usuarios.find(y=>y.nombre===u)||{}; return x.firma || u || ''; };
 const precioBon = it => num(it.bonif)>0 ? Math.round(num(it.precio)*(1-num(it.bonif)/100)) : num(it.precio);
@@ -929,7 +937,7 @@ function cotizador(consultaId,baseId,modo){
     condiciones_pago:B('condiciones_pago',C('COND_PAGO')), plazo_entrega:B('plazo_entrega',C('PLAZO_ENTREGA')),
     validez_dias:B('validez_dias',C('VALIDEZ_DIAS')), garantia:B('garantia',C('GARANTIA')),
     lugar_entrega:B('lugar_entrega',C('LUGAR_ENTREGA')), notas:B('notas',''), firma:ex.firma||firmaDe(c.asignado||S.user),
-    mercado: ex.mercado || (c.provincia==='Exterior'?'ME':'MI'), pago_b: ex.pago_b||C('ME_PAGO_B'), origen: ex.origen||C('ME_ORIGEN')};
+    mercado: ex.mercado || (c.provincia==='Exterior'?'ME':'MI'), pago_b: ex.pago_b||C('ME_PAGO_B'), origen: ex.origen!==undefined?ex.origen:C((ex.mercado || (c.provincia==='Exterior'?'ME':'MI'))==='ME'?'ME_ORIGEN':'ORIGEN')};
   if(!base && CZ.mercado==='ME') czAplicarMercado('ME',true);
   if(base && base.notas==='Importada de la planilla') CZ.notas='';
   const titulo = modo==='editar'?'✏️ Editar cotización '+base.id : modo==='rev'?'Nueva revisión de '+base.numero : modo==='copia'?'Nueva cotización (copia de '+base.id+')':'Nueva cotización';
@@ -988,7 +996,7 @@ function czCondHTML(){
     <label class="f span2">Forma de pago A${T('condiciones_pago',2)}</label>
     <label class="f span2">Forma de pago B${T('pago_b',2)}</label>
     <label class="f span2">Garantía${T('garantia',3)}</label>
-    <label class="f span2">Origen${T('origen',2)}</label>
+    <label class="f span2">Origen <span class="muted small">(lo que va entre ** sale en negrita)</span>${T('origen',3)}</label>
     ${comun}
     <label class="f span2">Observaciones (opcional)${T('notas',2)}</label>
     ${czFirmaHTML()}`;
@@ -1001,6 +1009,7 @@ function czCondHTML(){
     <label class="f">Plazo de entrega<input value="${esc(CZ.plazo_entrega)}" oninput="CZ.plazo_entrega=this.value"></label>
     <label class="f">Lugar de entrega<input value="${esc(CZ.lugar_entrega)}" oninput="CZ.lugar_entrega=this.value"></label>
     <label class="f span2">Garantía${T('garantia',2)}</label>
+    <label class="f span2">Origen <span class="muted small">(lo que va entre ** sale en negrita)</span>${T('origen',2)}</label>
     <label class="f span2">Observaciones (opcional, aparece en condiciones)${T('notas',2)}</label>
     ${czFirmaHTML()}`;
 }
@@ -1012,7 +1021,7 @@ function czAplicarMercado(k,silencioso){
     Object.assign(CZ,{moneda:'USD',cuotas:'0',incluir_fin:false,lugar_entrega:C('ME_CONDICION'),plazo_entrega:C('ME_PLAZO'),condiciones_pago:C('ME_PAGO_A'),pago_b:C('ME_PAGO_B'),garantia:C('ME_GARANTIA'),origen:C('ME_ORIGEN')});
     CZ.items.forEach(it=>it.iva=0);
   } else {
-    Object.assign(CZ,{cuotas:C('CUOTAS'),incluir_fin:true,lugar_entrega:C('LUGAR_ENTREGA'),plazo_entrega:C('PLAZO_ENTREGA'),condiciones_pago:C('COND_PAGO'),garantia:C('GARANTIA')});
+    Object.assign(CZ,{cuotas:C('CUOTAS'),incluir_fin:true,lugar_entrega:C('LUGAR_ENTREGA'),plazo_entrega:C('PLAZO_ENTREGA'),condiciones_pago:C('COND_PAGO'),garantia:C('GARANTIA'),origen:C('ORIGEN')});
     CZ.items.forEach(it=>{ if(!num(it.iva)){ const p=S.db.productos.find(x=>x.nombre===it.nombre); it.iva=num(p&&p.iva)||10.5; } });
   }
   if(silencioso || !$('#czMer')) return;
@@ -1201,7 +1210,7 @@ function pdfDefModerno(d,c,numero,fecha){
 
   // ---- Condiciones
   const cond=[];
-  const fila=(k,v)=>cond.push([{text:k,bold:true,color:AZO,fontSize:8.5},{text:v,fontSize:8.5,color:'#1f2937'}]);
+  const fila=(k,v)=>cond.push([{text:k,bold:true,color:AZO,fontSize:8.5},{text:rico(v),fontSize:8.5,color:'#1f2937'}]);
   if(ME){
     fila('Condición de venta',d.lugar_entrega);
     fila('Plazo de fabricación',d.plazo_entrega);
@@ -1218,6 +1227,7 @@ function pdfDefModerno(d,c,numero,fecha){
   fila('Plazo de entrega',d.plazo_entrega);
   fila('Garantía',d.garantia);
   fila('Validez de la oferta',`${num(d.validez_dias)||15} días (hasta el ${fdLarga(vence)}).`);
+  if(ex.origen) fila('Origen',ex.origen);
   fila('Pruebas',C('TEXTO_PRUEBA'));
   if(d.notas) fila('Observaciones',d.notas);
   }
@@ -1304,7 +1314,7 @@ function pdfDefClasico(d,c,numero,fecha){
     ex.pago_b?{text:[{text:'FORMA DE PAGO B: ',bold:true},ex.pago_b],margin:[0,0,0,10]}:null,
     {text:[{text:'GARANTÍA: ',bold:true},d.garantia],margin:[0,0,0,10]},
     {text:[{text:'VALIDEZ DE LA OFERTA: ',bold:true},`${num(d.validez_dias)||15} días.`],margin:[0,0,0,10]},
-    ex.origen?{text:[{text:'Origen: ',bold:true},ex.origen],margin:[0,0,0,10]}:null,
+    ex.origen?{text:[{text:'Origen',decoration:'underline'},{text:': '},...rico(ex.origen)],margin:[0,0,0,10]}:null,
     d.notas?{text:[{text:'Observaciones: ',bold:true},d.notas],margin:[0,0,0,10]}:null,
     {text:C('ME_PRUEBA'),margin:[0,0,0,10]},
     {text:C('TEXTO_CIERRE')},
@@ -1322,6 +1332,7 @@ function pdfDefClasico(d,c,numero,fecha){
     {text:[...U('Garantía'),' '+d.garantia],margin:[0,0,0,10]},
     {text:[...U('Validez de la oferta'),` ${num(d.validez_dias)||15} días.`],margin:[0,0,0,10]},
     d.notas?{text:[...U('Observaciones'),' '+d.notas],margin:[0,0,0,10]}:null,
+    ex.origen?{text:[{text:'Origen',decoration:'underline'},{text:': '},...rico(ex.origen)],margin:[0,0,0,10]}:null,
     {text:C('TEXTO_PRUEBA'),margin:[0,0,0,10]},
     {text:C('TEXTO_CIERRE')},
     {text:ex.firma||'',bold:true,margin:[0,30,0,0]}
