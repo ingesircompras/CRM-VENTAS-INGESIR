@@ -180,7 +180,8 @@ dl.kv dt{color:var(--muted)} dl.kv dd{margin:0;word-break:break-word;white-space
 .switch{display:inline-flex;background:#e2e8f0;border-radius:99px;padding:3px}
 .switch button{border:0;background:transparent;padding:5px 12px;border-radius:99px;font-weight:600;font-size:12.5px;color:var(--muted)}
 .switch button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
-input.falta{border-color:#f59e0b!important;background:#fffbeb}
+input.falta,select.falta{border-color:#f59e0b!important;background:#fffbeb}
+#czItems .f>select,select.selmaq{padding:9px 10px;border:1px solid var(--line);border-radius:9px;width:100%;margin-top:4px}
 .sm-sel{font-size:12px;padding:4px 6px;max-width:62%}
 .chip[disabled]{opacity:.55;cursor:default}
 .drawer.simple .btn{font-size:14.5px;padding:9px 14px}
@@ -721,7 +722,7 @@ function formConsulta(id){
         <label class="f">Email<input id="cMail" type="email" value="${esc(c.email)}"></label>
         <label class="f">Localidad<input id="cLoc" value="${esc(c.localidad)}"></label>
         <label class="f">Provincia<select id="cProv"><option></option>${PROVINCIAS.map(p=>`<option ${c.provincia===p?'selected':''}>${p}</option>`).join('')}</select></label>
-        <label class="f span2">Máquina / producto de interés<input id="cMaq" list="dlProd" value="${esc(c.maquina)}" placeholder="Elegí del catálogo o escribí libre"></label>
+        <div class="f span2">${selMaquinaHTML('cMaq',c.maquina,'Máquina / producto de interés (opcional, se puede elegir después)')}</div>
         <label class="f span2">¿Qué necesita? (producto a envasar, producción/hora, tipo de envase, plazo…)<textarea id="cDet" rows="4">${esc(c.detalle)}</textarea></label>
         <label class="f">CUIT (opcional)<input id="cCuit" value="${esc(c.cuit)}"></label>
         <label class="f">¿Cómo nos conoció?<select id="cOri"><option></option>${cfgList('ORIGENES').map(o=>`<option ${c.origen===o?'selected':''}>${esc(o)}</option>`).join('')}</select></label>
@@ -1069,7 +1070,7 @@ function cotizador(consultaId,baseId,modo){
     </div>
     <div id="czArmarBox">
       <div class="row" style="margin-bottom:10px">
-        <label class="f grow" style="min-width:240px">Título / equipo (nombre del archivo y de la lista)<input value="${esc(CZ.titulo)}" placeholder="Ej: Dosificadora sinfín + selladora" oninput="CZ.titulo=this.value"></label>
+        <label class="f grow" style="min-width:240px">Título / equipo (nombre del archivo y de la lista)<input id="czTit" value="${esc(CZ.titulo)}" placeholder="Se completa solo al elegir la máquina" oninput="CZ.titulo=this.value;CZ._titAuto=false"></label>
         <div><div class="small muted" style="font-weight:700;margin-bottom:4px">MONEDA</div>
         <div class="switch" id="czMon">${['USD','ARS'].map(m=>`<button class="${CZ.moneda===m?'on':''}" onclick="CZ.moneda='${m}';document.querySelectorAll('#czMon button').forEach(b=>b.classList.toggle('on',b.textContent==='${m}'));czCalc()">${m}</button>`).join('')}</div></div>
       </div>
@@ -1179,7 +1180,7 @@ function czRows(){
   if($('#czCond')) $('#czCond').innerHTML=czCondHTML();
   $('#czItems').innerHTML = CZ.items.map((it,i)=>`<div class="panel" style="padding:10px;border:1px solid var(--line);box-shadow:none">
     <div class="row" style="align-items:flex-end">
-      <label class="f grow" style="min-width:220px">${i===0?'Equipo principal':'Adicional / opción '+i} <span style="font-weight:400">(elegí del catálogo o escribí)</span><input list="dlProd2" value="${esc(it.nombre)}" onchange="czProd(${i},this.value)" oninput="CZ.items[${i}].nombre=this.value"></label>
+      ${i===0?czMaquinaHTML(it):`<label class="f grow" style="min-width:220px">Adicional / opción ${i} <span style="font-weight:400">(elegí del catálogo o escribí)</span><input list="dlProd2" value="${esc(it.nombre)}" onchange="czProd(${i},this.value)" oninput="CZ.items[${i}].nombre=this.value"></label>`}
       <label class="f" style="width:120px">Precio lista<input type="number" min="0" step="1" value="${num(it.precio)||''}" placeholder="Cargar" class="${num(it.precio)?'':'falta'}" oninput="CZ.items[${i}].precio=num(this.value);this.classList.toggle('falta',!num(this.value));czCalc()"></label>
       <label class="f" style="width:80px">Bonif. %<input type="number" min="0" max="100" step="1" value="${it.bonif}" oninput="CZ.items[${i}].bonif=num(this.value);czCalc()"></label>
       <div style="width:120px;display:flex;flex-direction:column;gap:4px;font-size:12px"><span class="muted" style="font-weight:600">Bonificado</span><b id="czBon${i}" style="padding:8px 0;font-size:14px"></b></div>
@@ -1191,6 +1192,32 @@ function czRows(){
     <button class="btn sm" onclick="guardarEnCatalogo(${i})" title="Guarda este texto en el catálogo para las próximas cotizaciones">💾 Guardar texto en catálogo</button></div>
   </div>`).join('') + czAdicionalesHTML();
   czCalc();
+}
+/** Desplegable de máquinas por familia + "Otra (escribir)". El valor final queda siempre en el input #idInput. */
+function selMaquinaHTML(idInput,valor,label){
+  const maqs=S.db.productos.filter(p=>p.tipo==='MAQUINA'||!p.tipo), g={};
+  maqs.forEach(p=>{ const k=p.familia||'Otras'; (g[k]=g[k]||[]).push(p); });
+  valor=String(valor||''); const libre=!!valor && !maqs.some(p=>p.nombre===valor);
+  return `<span style="font-weight:600;font-size:12.5px;color:var(--muted)">${label}</span>
+    <select class="selmaq" onchange="const i=document.getElementById('${idInput}'); if(this.value==='__otra'){i.classList.remove('hidden');i.value='';i.focus();} else {i.classList.add('hidden');i.value=this.value;}">
+      <option value="">— Elegí la máquina —</option>
+      ${Object.keys(g).map(k=>`<optgroup label="${esc(k)}">${g[k].map(p=>`<option ${p.nombre===valor?'selected':''}>${esc(p.nombre)}</option>`).join('')}</optgroup>`).join('')}
+      <option value="__otra" ${libre?'selected':''}>✏️ Otra máquina (escribir)…</option>
+    </select>
+    <input id="${idInput}" class="${libre?'':'hidden'}" style="margin-top:4px" value="${esc(valor)}" placeholder="Escribí el nombre de la máquina">`;
+}
+/** Máquina principal: desplegable por familia (fácil de encontrar) + opción de escribir otra. */
+function czMaquinaHTML(it){
+  const maqs=S.db.productos.filter(p=>p.tipo==='MAQUINA'||!p.tipo), g={};
+  maqs.forEach(p=>{ const k=p.familia||'Otras'; (g[k]=g[k]||[]).push(p); });
+  const enLista=maqs.some(p=>p.nombre===it.nombre), libre=!!it.nombre&&!enLista || CZ._libre;
+  return `<div class="f grow" style="min-width:240px"><span style="font-weight:700;font-size:12px;color:var(--muted)">MÁQUINA A COTIZAR</span>
+    <select class="${it.nombre?'':'falta'}" style="font-size:15px" onchange="if(this.value==='__otra'){CZ._libre=true;CZ.items[0].nombre='';czRows();setTimeout(()=>$('#czMaqLibre').focus(),30);}else{CZ._libre=false;czProd(0,this.value);}">
+      <option value="">— Elegí la máquina —</option>
+      ${Object.keys(g).map(k=>`<optgroup label="${esc(k)}">${g[k].map(p=>`<option ${p.nombre===it.nombre?'selected':''}>${esc(p.nombre)}</option>`).join('')}</optgroup>`).join('')}
+      <option value="__otra" ${libre?'selected':''}>✏️ Otra máquina (escribir)…</option>
+    </select>
+    ${libre?`<input id="czMaqLibre" style="margin-top:4px" placeholder="Escribí el nombre de la máquina" value="${esc(it.nombre)}" oninput="CZ.items[0].nombre=this.value" onchange="czProd(0,this.value)">`:''}</div>`;
 }
 /** Adicionales que corresponden a la máquina principal (según el número de la lista de máquinas). */
 function czAdicionalesHTML(){
@@ -1225,8 +1252,8 @@ async function guardarEnCatalogo(i){
 }
 function czProd(i,nombre){
   const p=S.db.productos.find(x=>x.nombre===nombre); const it=CZ.items[i]; it.nombre=nombre;
+  if(i===0 && nombre && (!CZ.titulo || CZ._titAuto!==false && CZ._titAuto)){ CZ.titulo=nombre; CZ._titAuto=true; const t=$('#czTit'); if(t) t.value=nombre; }
   if(p){ it.codigo=p.codigo; it.descripcion=p.descripcion||''; it.iva=CZ.mercado==='ME'?0:(num(p.iva)||10.5);
-    if(!CZ.titulo && i===0) CZ.titulo=nombre;
     if(!it.descripcion) toast('Este ítem todavía no tiene texto técnico: escribilo y tocá "Guardar texto en catálogo"');
     czRows(); }
 }
@@ -1298,6 +1325,7 @@ async function czGuardar(){
     upsert(S.db.cotizaciones,r2.cotizacion); upsert(S.db.consultas,r2.consulta);
     alCerrarModal=null; cerrarModal(); refreshAll(); envio(cot.id,true);
     textosAlCatalogo(d.items);
+    if(c && !String(c.maquina||'').trim() && d.items[0] && d.items[0].nombre){ const mq=String(d.items[0].nombre).trim(); c.maquina=mq; api('saveConsulta',{id:c.id,maquina:mq,usuario:S.user}).then(r=>{ if(r&&r.id) upsert(S.db.consultas,r); refreshAll(); }).catch(()=>{}); }
   }catch(e){
     console.error(e);
     if(cot){ // el número ya se asignó: el próximo intento corrige ESA cotización en vez de crear otra
