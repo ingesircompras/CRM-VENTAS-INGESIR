@@ -271,7 +271,11 @@ function sinContacto(c){
 }
 const cotsDe = id => S.db.cotizaciones.filter(x=>x.consulta_id===id).sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
 const mine = c => !S.soloMias || c.asignado===S.user;
-function upsert(list,obj,key='id'){const i=list.findIndex(x=>x[key]===obj[key]); if(i>=0) list[i]=obj; else list.push(obj)}
+/* Google Sheets convierte a número lo que parece número (ej. empresa "123", teléfono, CUIT): acá se vuelve todo a texto */
+const CAMPOS_TEXTO=['id','consulta_id','numero','contacto','empresa','cuit','telefono','email','localidad','provincia','maquina','detalle','origen','asignado','estado','proxima_accion','motivo_perdida','canal','prioridad','codigo','nombre','descripcion','familia','num','adicionales','enviada_a'];
+function aTexto(o){ if(o && typeof o==='object') CAMPOS_TEXTO.forEach(k=>{ if(o[k]!==undefined && o[k]!==null && typeof o[k]!=='string') o[k]=String(o[k]); }); return o; }
+function normalizarDB(d){ ['consultas','cotizaciones','productos'].forEach(k=>(d[k]||[]).forEach(aTexto)); return d; }
+function upsert(list,obj,key='id'){aTexto(obj);const i=list.findIndex(x=>x[key]===obj[key]); if(i>=0) list[i]=obj; else list.push(obj)}
 
 /* =============================== API ================================ */
 async function api(action,data={}){
@@ -283,7 +287,9 @@ async function api(action,data={}){
     api._saltos=1; try{ return await api(action,data); } finally{ api._saltos=0; }
   }
   if(!j.ok){ const err=new Error(j.error||'Error del servidor'); if(j.auth) err.auth=true; throw err; }
-  return j.data;
+  const out=j.data;
+  if(Array.isArray(out)) out.forEach(aTexto); else if(out && typeof out==='object'){ aTexto(out.consulta); aTexto(out.cotizacion); }
+  return out;
 }
 async function call(action,data,okMsg){
   busy(true);
@@ -295,7 +301,7 @@ async function cargar(silent){
   if(!silent) busy(true);
   try{
     const d = await api('bootstrap');
-    S.db = d;
+    S.db = normalizarDB(d);
     if(!S.logo){ api('getLogo').then(l=>{ if(l){S.logo=l; renderTop();} }).catch(()=>{}); }
     return true;
   }catch(e){ if(!silent) toast('⚠ '+e.message,true); return false; }
@@ -934,7 +940,7 @@ const tituloDe = x => { const e=extrasDe(x); try{ return e.titulo||JSON.parse(x.
 const mercadoDe = x => extrasDe(x).mercado==='ME'?'ME':'MI';
 const ivaTxt = x => mercadoDe(x)==='ME'?'':' + IVA';
 /** Nombre del PDF: 026-0521 Cliente - Máquina (MI) */
-const nombreArchivo = (num,c,titulo,mercado) => (`${num} ${(c.empresa||c.contacto||'Cliente').trim()} - ${String(titulo||'').trim()} (${mercado==='ME'?'ME':'MI'})`).replace(/[\\/:*?"<>|]/g,'').replace(/\s+/g,' ').slice(0,150);
+const nombreArchivo = (num,c,titulo,mercado) => (`${num} ${String(c.empresa||c.contacto||'Cliente').trim()} - ${String(titulo||'').trim()} (${mercado==='ME'?'ME':'MI'})`).replace(/[\\/:*?"<>|]/g,'').replace(/\s+/g,' ').slice(0,150);
 const esEditable = x => extrasDe(x).cuotas!==undefined;           // armada en el sistema (no subida como archivo)
 const pendienteReenvio = x => { const m=extrasDe(x).modificada; return !!(m && x.enviada_fecha && String(m) > String(x.enviada_fecha)); };
 // Textos por defecto del formato F-7.2.05 (se pueden cambiar en la hoja CONFIG)
