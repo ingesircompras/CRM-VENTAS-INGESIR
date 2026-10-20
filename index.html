@@ -204,6 +204,8 @@ details.panel>summary{list-style:none}
 details.panel>summary::-webkit-details-marker{display:none}
 details.panel>summary::after{content:' ▸';}
 details.panel[open]>summary::after{content:' ▾';}
+.aviso-emp{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:9px 12px;margin-bottom:12px;font-size:13.5px;line-height:1.5}
+.ultprec{margin-top:6px;font-size:13px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:6px 10px}
 </style>
 </head>
 <body>
@@ -362,7 +364,7 @@ async function init(){
 async function renderPinLogin(){
   $('#root').innerHTML = `<div class="center"><div class="login"><h1>INGESIR · Ventas</h1><div class="muted">Elegí tu nombre</div>
     <div class="users" id="pinUsers"><div class="muted small">Cargando…</div></div>
-    <div class="row" style="margin-top:16px;justify-content:space-between"><button class="btn sm" onclick="renderLogin()">Entrar con clave general</button><button class="btn sm" onclick="entrarDemo()">Modo demo</button></div></div></div>`;
+    <div class="row" style="margin-top:16px;justify-content:space-between"><button class="btn sm" onclick="renderLogin()">Entrar con clave general (administración)</button></div></div></div>`;
   try{
     const r=await fetch(S.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'usuarios'})});
     const j=await r.json();
@@ -723,6 +725,7 @@ function formConsulta(id){
         <label class="f">Localidad<input id="cLoc" value="${esc(c.localidad)}"></label>
         <label class="f">Provincia<select id="cProv"><option></option>${PROVINCIAS.map(p=>`<option ${c.provincia===p?'selected':''}>${p}</option>`).join('')}</select></label>
         <div class="f span2">${selMaquinaHTML('cMaq',c.maquina,'Máquina / producto de interés (opcional, se puede elegir después)')}</div>
+        <div id="empInfo" class="span2" data-id="${esc(id||'')}">${c.empresa?antecedentesHTML(antecedentesEmpresa(c.empresa,id)):''}</div>
         <label class="f span2">¿Qué necesita? (producto a envasar, producción/hora, tipo de envase, plazo…)<textarea id="cDet" rows="4">${esc(c.detalle)}</textarea></label>
         <label class="f">CUIT (opcional)<input id="cCuit" value="${esc(c.cuit)}"></label>
         <label class="f">¿Cómo nos conoció?<select id="cOri"><option></option>${cfgList('ORIGENES').map(o=>`<option ${c.origen===o?'selected':''}>${esc(o)}</option>`).join('')}</select></label>
@@ -739,8 +742,8 @@ function formConsulta(id){
 }
 function fcSet(k,v){ FC[k]=v; document.querySelectorAll('#ch_'+k+' .chip').forEach(b=>b.classList.toggle('on', b.textContent.trim().endsWith(v||'Sin asignar') && (v!==''||b.textContent.trim()==='Sin asignar'))); }
 function autoEmpresa(){
-  const e=$('#cEmp').value.trim(); if(!e) return;
-  const prev=S.db.consultas.filter(c=>c.empresa===e).sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)))[0];
+  const e=$('#cEmp').value.trim(); const box=$('#empInfo'); if(box) box.innerHTML=e?antecedentesHTML(antecedentesEmpresa(e,box.dataset.id)):''; if(!e) return;
+  const prev=S.db.consultas.filter(c=>normEmp(c.empresa)===normEmp(e) && c.id!==(box&&box.dataset.id)).sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)))[0];
   if(!prev) return;
   [['#cCon','contacto'],['#cTel','telefono'],['#cMail','email'],['#cLoc','localidad'],['#cCuit','cuit']].forEach(([s,k])=>{ if(!$(s).value) $(s).value=prev[k]||''; });
   if(prev.provincia) $('#cProv').value=prev.provincia;
@@ -748,7 +751,7 @@ function autoEmpresa(){
   toast('Cliente conocido: datos completados ('+prev.id+')');
 }
 async function guardarConsulta(cotizar,id){
-  const d={canal:FC.canal,prioridad:FC.prioridad,asignado:FC.asignado,calificacion:FC.calificacion,es_cliente:$('#cCli').checked?'SI':'',empresa:$('#cEmp').value.trim(),contacto:$('#cCon').value.trim(),telefono:$('#cTel').value.trim(),email:$('#cMail').value.trim(),
+  const d={canal:FC.canal,asignado:FC.asignado,calificacion:FC.calificacion,es_cliente:$('#cCli').checked?'SI':'',empresa:$('#cEmp').value.trim(),contacto:$('#cCon').value.trim(),telefono:$('#cTel').value.trim(),email:$('#cMail').value.trim(),
     localidad:$('#cLoc').value.trim(),provincia:$('#cProv').value,maquina:$('#cMaq').value.trim(),detalle:$('#cDet').value.trim(),cuit:$('#cCuit').value.trim(),origen:$('#cOri').value};
   if(!d.contacto && !d.empresa) return toast('Poné al menos el nombre del contacto o la empresa',true);
   if(!d.telefono && !d.email) { if(!confirm('No cargaste teléfono ni email. ¿Guardar igual?')) return; }
@@ -967,6 +970,31 @@ async function confirmarCierre(id,estado){
 }
 
 /* =============================== COTIZADOR ========================== */
+/* ---- Antecedentes: último precio cotizado y cotizaciones previas de una empresa ---- */
+function ultimoPrecio(nombre,excluir){
+  nombre=String(nombre||'').trim(); if(!nombre) return null;
+  const L=S.db.cotizaciones.filter(x=>x.id!==excluir).sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
+  for(const x of L){ let its=[]; try{its=JSON.parse(x.items_json||'[]')}catch(e){}
+    const it=its.find(i=>String(i.nombre||'').trim()===nombre && num(i.precio)>0);
+    if(it){ const c=S.db.consultas.find(k=>k.id===x.consulta_id)||{}; return {precio:num(it.precio),moneda:x.moneda||'USD',id:x.id,fecha:x.fecha,empresa:nombreDe(c)}; } }
+  return null;
+}
+const normEmp = e => String(e||'').toLowerCase().replace(/\b(s\.?a\.?|s\.?r\.?l\.?|sas|s\.?a\.?s\.?)\b/g,'').replace(/[^a-z0-9áéíóúñ]/g,'');
+function antecedentesEmpresa(empresa,excluirConsulta){
+  const k=normEmp(empresa); if(!k) return null;
+  const cons=S.db.consultas.filter(c=>c.id!==excluirConsulta && normEmp(c.empresa)===k);
+  if(!cons.length) return null;
+  const ids=new Set(cons.map(c=>c.id));
+  const cots=S.db.cotizaciones.filter(x=>ids.has(x.consulta_id)).sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
+  return {cons,cots,ganadas:cons.filter(c=>c.estado==='Ganada').length};
+}
+function antecedentesHTML(a){
+  if(!a) return '';
+  const tit=x=>{try{return JSON.parse(x.extras_json||'{}').titulo||''}catch(e){return ''}};
+  return `<div class="aviso-emp">🗂 <b>Esta empresa ya tiene ${a.cons.length} consulta${a.cons.length>1?'s':''}${a.cots.length?' y '+a.cots.length+' cotizaci'+(a.cots.length>1?'ones':'ón'):''} anteriores</b>${a.ganadas?' · ⭐ ya compró':''}
+    ${a.cots.slice(0,3).map(x=>`<div class="small">• ${esc(x.id)} · ${fd(x.fecha)} · ${esc(tit(x))} · <b>${num(x.total)?money(x.total,x.moneda):'sin monto'}</b> ${x.pdf_url||x._fileUrl?`<a href="#" onclick="event.preventDefault();verPDF('${x.id}')">ver PDF</a>`:''}</div>`).join('')}</div>`;
+}
+
 /* ---- Catálogo: máquinas, adicionales numerados y textos guardados ---- */
 const esTexto = p => p.tipo==='TEXTO';
 const prodVendibles = () => S.db.productos.filter(p=>!esTexto(p));
@@ -1049,6 +1077,8 @@ function cotizador(consultaId,baseId,modo){
     validez_dias:B('validez_dias',C('VALIDEZ_DIAS')), garantia:B('garantia',C('GARANTIA')),
     lugar_entrega:B('lugar_entrega',C('LUGAR_ENTREGA')), notas:B('notas',''), firma:ex.firma||firmaDe(c.asignado||S.user),
     mercado: ex.mercado || (c.provincia==='Exterior'?'ME':'MI'), pago_b: ex.pago_b||C('ME_PAGO_B'), origen: ex.origen!==undefined?ex.origen:C((ex.mercado || (c.provincia==='Exterior'?'ME':'MI'))==='ME'?'ME_ORIGEN':'ORIGEN')};
+  CZ.conDesc=CZ.items.some(x=>num(x.bonif)>0);
+  CZ._titAuto = !ex.titulo;   // si el título vino de la consulta, sigue a la máquina elegida
   if(!base && CZ.mercado==='ME') czAplicarMercado('ME',true);
   if(base && base.notas==='Importada de la planilla') CZ.notas='';
   const titulo = modo==='editar'?'✏️ Editar cotización '+base.id : modo==='rev'?'Nueva revisión de '+base.numero : modo==='copia'?'Nueva cotización (copia de '+base.id+')':'Nueva cotización';
@@ -1058,6 +1088,7 @@ function cotizador(consultaId,baseId,modo){
     <div class="row" style="margin-bottom:12px;gap:10px"><span class="small muted" style="font-weight:700">MERCADO</span>
       <div class="switch" id="czMer">${[['MI','🇦🇷 Mercado interno (MI)'],['ME','🌎 Mercado externo (ME)']].map(([k,l])=>`<button data-k="${k}" class="${CZ.mercado===k?'on':''}" onclick="czAplicarMercado('${k}')">${l}</button>`).join('')}</div>
       <span class="small muted" id="czMerTxt">${CZ.mercado==='ME'?'Exportación: sin IVA, en USD, condiciones FCA Rosario.':'Argentina: precios + IVA, cuotas y financiación bancaria.'}</span></div>
+    ${antecedentesHTML(antecedentesEmpresa(c.empresa,c.id))}
     <div class="switch" id="czModo" style="margin-bottom:14px"><button onclick="czModo(false)">🧮 Armar en el sistema (formato INGESIR)</button><button onclick="czModo(true)">📎 Subir PDF / Word ya hecho</button></div>
     <div id="czSubirBox" class="hidden" style="display:flex;flex-direction:column;gap:10px">
       <div class="grid3">
@@ -1075,7 +1106,7 @@ function cotizador(consultaId,baseId,modo){
         <div class="switch" id="czMon">${['USD','ARS'].map(m=>`<button class="${CZ.moneda===m?'on':''}" onclick="CZ.moneda='${m}';document.querySelectorAll('#czMon button').forEach(b=>b.classList.toggle('on',b.textContent==='${m}'));czCalc()">${m}</button>`).join('')}</div></div>
       </div>
       <div id="czItems" style="display:flex;flex-direction:column;gap:10px"></div>
-      <button class="btn sm" style="margin-top:8px" onclick="CZ.items.push({codigo:'',nombre:'',descripcion:'',precio:0,bonif:CZ.items.length?CZ.items[CZ.items.length-1].bonif:0,iva:CZ.mercado==='ME'?0:10.5});czRows()">+ Agregar ítem / adicional</button>
+      <button class="btn sm" style="margin-top:8px" onclick="CZ.items.push({codigo:'',nombre:'',descripcion:'',precio:0,bonif:CZ.conDesc&&CZ.items.length?CZ.items[CZ.items.length-1].bonif:0,iva:CZ.mercado==='ME'?0:10.5});czRows()">+ Agregar ítem / adicional</button>
       <div class="row" style="margin-top:14px;align-items:flex-start">
         <div class="grid2 grow" style="min-width:280px" id="czCond"></div>
         <div class="tot-box" id="czTot"></div>
@@ -1100,7 +1131,7 @@ function czFirmaHTML(){
 function czCondHTML(){
   const T=(k,rows)=>`<textarea rows="${rows}" oninput="CZ.${k}=this.value">${esc(CZ[k])}</textarea>`;
   const comun=`<label class="f">Validez de la oferta (días)<input type="number" value="${esc(CZ.validez_dias)}" oninput="CZ.validez_dias=this.value"></label>
-    <label class="f">Precio bonificado válido hasta<input type="date" value="${CZ.bonif_hasta}" oninput="CZ.bonif_hasta=this.value"></label>`;
+    ${CZ.conDesc?`<label class="f">Descuento válido hasta<input type="date" value="${CZ.bonif_hasta}" oninput="CZ.bonif_hasta=this.value"></label>`:''}`;
   if(CZ.mercado==='ME') return `
     <label class="f span2">Condición de venta / entrega${T('lugar_entrega',2)}</label>
     <label class="f span2">Plazo de fabricación<input value="${esc(CZ.plazo_entrega)}" oninput="CZ.plazo_entrega=this.value"></label>
@@ -1182,15 +1213,16 @@ function czRows(){
     <div class="row" style="align-items:flex-end">
       ${i===0?czMaquinaHTML(it):`<label class="f grow" style="min-width:220px">Adicional / opción ${i} <span style="font-weight:400">(elegí del catálogo o escribí)</span><input list="dlProd2" value="${esc(it.nombre)}" onchange="czProd(${i},this.value)" oninput="CZ.items[${i}].nombre=this.value"></label>`}
       <label class="f" style="width:120px">Precio lista<input type="number" min="0" step="1" value="${num(it.precio)||''}" placeholder="Cargar" class="${num(it.precio)?'':'falta'}" oninput="CZ.items[${i}].precio=num(this.value);this.classList.toggle('falta',!num(this.value));czCalc()"></label>
-      <label class="f" style="width:80px">Bonif. %<input type="number" min="0" max="100" step="1" value="${it.bonif}" oninput="CZ.items[${i}].bonif=num(this.value);czCalc()"></label>
-      <div style="width:120px;display:flex;flex-direction:column;gap:4px;font-size:12px"><span class="muted" style="font-weight:600">Bonificado</span><b id="czBon${i}" style="padding:8px 0;font-size:14px"></b></div>
+      ${CZ.conDesc?`<label class="f" style="width:80px">Descuento %<input type="number" min="0" max="100" step="1" value="${it.bonif}" oninput="CZ.items[${i}].bonif=num(this.value);czCalc()"></label>
+      <div style="width:120px;display:flex;flex-direction:column;gap:4px;font-size:12px"><span class="muted" style="font-weight:600">Con descuento</span><b id="czBon${i}" style="padding:8px 0;font-size:14px"></b></div>`:''}
       <label class="f" style="width:80px">IVA %<select ${CZ.mercado==='ME'?'disabled title="Exportación: sin IVA"':''} onchange="CZ.items[${i}].iva=num(this.value);czCalc()">${[10.5,21,0].map(v=>`<option ${num(it.iva)===v?'selected':''}>${v}</option>`).join('')}</select></label>
       ${CZ.items.length>1?`<button class="x" title="Quitar" onclick="CZ.items.splice(${i},1);czRows()">×</button>`:''}
     </div>
+    ${(()=>{ const u=ultimoPrecio(it.nombre,CZ.baseId); return u?`<div class="ultprec">💡 Última vez que se cotizó: <a href="#" title="Usar este precio" onclick="event.preventDefault();CZ.items[${i}].precio=${u.precio};czRows()"><b>${money(u.precio,u.moneda)}</b></a> · ${esc(u.id)} · ${esc(u.empresa)} · ${fd(u.fecha)}${u.moneda!==CZ.moneda?' <span style="color:var(--warn)">(en '+u.moneda+')</span>':''} <span class="muted">— tocá el monto para usarlo</span></div>`:''; })()}
     <label class="f" style="margin-top:6px">Texto técnico (sale tal cual en el PDF — lo podés modificar solo para esta cotización)<textarea rows="5" oninput="CZ.items[${i}].descripcion=this.value">${esc(it.descripcion)}</textarea></label>
     <div class="row" style="justify-content:space-between;margin-top:4px;gap:6px"><select class="sm-sel" title="Reemplaza el texto de este ítem por el de otro ítem del catálogo" onchange="if(this.value){czUsarTexto(${i},this.value)}"><option value="">📄 Usar el texto de otro ítem…</option>${textosOpts()}</select>
     <button class="btn sm" onclick="guardarEnCatalogo(${i})" title="Guarda este texto en el catálogo para las próximas cotizaciones">💾 Guardar texto en catálogo</button></div>
-  </div>`).join('') + czAdicionalesHTML();
+  </div>`).join('') + czAdicionalesHTML() + `<div>${CZ.conDesc?`<button class="btn sm" onclick="CZ.conDesc=false;CZ.items.forEach(x=>x.bonif=0);czRows()">✕ Quitar descuento</button>`:`<button class="btn sm" onclick="CZ.conDesc=true;czRows()">＋ Agregar descuento</button>`}</div>`;
   czCalc();
 }
 /** Desplegable de máquinas por familia + "Otra (escribir)". El valor final queda siempre en el input #idInput. */
@@ -1231,7 +1263,7 @@ function czAdicionalesHTML(){
 function czAgregarAdicional(cod){
   const a=S.db.productos.find(p=>p.codigo===cod); if(!a) return;
   const vacio=CZ.items.findIndex((it,k)=>k>0 && !it.nombre && !it.descripcion && !num(it.precio));
-  const it={codigo:a.codigo,nombre:a.nombre,descripcion:a.descripcion||'',precio:0,bonif:CZ.items.length?num(CZ.items[CZ.items.length-1].bonif):0,iva:CZ.mercado==='ME'?0:(num(a.iva)||10.5)};
+  const it={codigo:a.codigo,nombre:a.nombre,descripcion:a.descripcion||'',precio:0,bonif:CZ.conDesc&&CZ.items.length?num(CZ.items[CZ.items.length-1].bonif):0,iva:CZ.mercado==='ME'?0:(num(a.iva)||10.5)};
   if(vacio>0) CZ.items[vacio]=it; else CZ.items.push(it);
   czRows();
 }
@@ -1353,7 +1385,7 @@ const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','
 const fechaLarga = iso => { const [y,m,d]=d10(iso).split('-'); return `${+d} de ${MESES[+m-1]} de ${y}`; };
 const fdLarga = iso => { const [y,m,d]=d10(iso).split('-'); return `${d}/${m}/${y}`; };
 function fmtP(n){ const r=Math.round(num(n)*100)/100; return Number.isInteger(r) ? r.toLocaleString('es-AR')+'.-' : r.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function pdfDef(d,c,numero,fecha){ return C('PDF_ESTILO').toLowerCase()==='clasico' ? pdfDefClasico(d,c,numero,fecha) : pdfDefModerno(d,c,numero,fecha); }
+function pdfDef(d,c,numero,fecha){ return pdfDefModerno(d,c,numero,fecha); }
 /* ---------- Estilo MODERNO: cotización ordenada, con tarjetas y resumen ---------- */
 function pdfDefModerno(d,c,numero,fecha){
   const ex=JSON.parse(d.extras_json||'{}'), m=d.moneda, sym=m==='ARS'?'$':'U$S', monTxt=m==='ARS'?'pesos argentinos':'dólares estadounidenses';
@@ -1607,9 +1639,9 @@ function plantilla(txt,cot,c){
 function envio(cotId,recienCreada){
   const cot=S.db.cotizaciones.find(x=>x.id===cotId), c=S.db.consultas.find(x=>x.id===cot.consulta_id);
   const wa=waNum(c.telefono);
-  const msgWa=`Hola ${c.contacto||''}, ¿cómo estás? Te paso la cotización ${cot.id} de ${C('EMPRESA_NOMBRE')} ${num(cot.total)?' por '+money(cot.total,cot.moneda)+ivaTxt(cot):''}.${cot.pdf_url?'\n\n📄 '+cot.pdf_url:''}\n\nCualquier duda quedo a disposición. Saludos, ${S.user}.`;
+  const msgWa=`Hola ${c.contacto||''}, ¿cómo estás? Te paso la cotización ${cot.id} de ${C('EMPRESA_NOMBRE')}${tituloDe(cot)?' por la '+tituloDe(cot):''}${num(cot.total)?' — '+money(cot.total,cot.moneda)+ivaTxt(cot):''}.${cot.pdf_url?'\n\n📄 '+cot.pdf_url:''}\n\nCualquier duda quedo a disposición. Saludos, ${S.user}.`;
   modal(`${recienCreada?'✔ Cotización '+esc(cot.id)+' lista — ':''}Enviar al cliente`, `
-    <div class="switch" id="envTab" style="margin-bottom:12px"><button class="on" onclick="envTab(0)">✉️ Por email (con PDF adjunto)</button><button onclick="envTab(1)">💬 Por WhatsApp</button></div>
+    <div class="switch" id="envTab" style="margin-bottom:12px"><button class="on" onclick="envTab(0)">✉️ Por email (con PDF adjunto)</button><button onclick="envTab(1)">💬 Por WhatsApp (con link al PDF)</button></div>
     <div id="env0" style="display:flex;flex-direction:column;gap:10px">
       <div class="grid2"><label class="f">Para<input id="enPara" type="email" value="${esc(c.email)}"></label><label class="f">CC (opcional)<input id="enCc"></label></div>
       <label class="f">Asunto<input id="enAs" value="${esc(plantilla(cfg('EMAIL_ASUNTO')||'Cotización {numero}',cot,c))}"></label>
