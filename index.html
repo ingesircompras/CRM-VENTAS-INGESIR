@@ -288,7 +288,7 @@ async function api(action,data={}){
 async function call(action,data,okMsg){
   busy(true);
   try{ const r = await api(action,Object.assign({usuario:S.user},data||{})); if(okMsg) toast(okMsg); return r; }
-  catch(e){ toast('⚠ '+e.message,true); throw e; }
+  catch(e){ toast('⚠ '+e.message,true); e.toasted=true; throw e; }
   finally{ busy(false); }
 }
 async function cargar(silent){
@@ -303,6 +303,11 @@ async function cargar(silent){
 }
 
 /* ============================== INICIO ============================== */
+/* Cualquier error inesperado se muestra en pantalla (en vez de quedar "colgado" sin aviso) */
+function avisarError(m){ try{ busy(false); }catch(_){} const b=document.getElementById('czSaveBtn'); if(b && b.disabled){ b.disabled=false; b.innerHTML='💾 Guardar y generar PDF'; }
+  toast('⚠ Error: '+String(m||'desconocido').slice(0,180)+' — mandá captura de este mensaje',true); }
+window.addEventListener('error',e=>{ if(e && e.message && !/ResizeObserver|Script error/i.test(e.message)) avisarError(e.message); });
+window.addEventListener('unhandledrejection',e=>{ const r=e&&e.reason; if(r && !r.toasted) avisarError(r.message||r); });
 async function init(){
   // Link de acceso directo: .../#k=CLAVE (y opcional &u=URL_EXEC). Se guarda y se borra de la barra de direcciones.
   try{
@@ -1217,29 +1222,41 @@ async function czGuardar(){
   if(!czPreciosOk(d)) return;
   if(!window.pdfMake) return toast('No cargó el generador de PDF (revisá la conexión a internet)',true);
   const c=S.db.consultas.find(x=>x.id===CZ.consultaId);
-  if(CZ.modo==='rev') d.revision_de=S.db.cotizaciones.find(x=>x.id===CZ.baseId).numero;
-  const editando = CZ.modo==='editar';
+  const baseCot=S.db.cotizaciones.find(x=>x.id===CZ.baseId);
+  if(CZ.modo==='rev' && baseCot) d.revision_de=baseCot.numero;
+  const editando = CZ.modo==='editar' && !!baseCot;
   if(editando){
-    const base=S.db.cotizaciones.find(x=>x.id===CZ.baseId);
+    const base=baseCot;
     if(base.enviada_fecha && !confirm(`La ${base.id} ya se envió el ${fd(base.enviada_fecha)}.\nSe va a reemplazar por esta versión (mismo número). Después reenviala al cliente.\n\n¿Continuar?`)) return;
     d.id=base.id;
     const ex=JSON.parse(d.extras_json); ex.modificada=new Date().toISOString().slice(0,19); d.extras_json=JSON.stringify(ex);
   }
-  $('#czSaveBtn').disabled=true;
+  const btn=$('#czSaveBtn'), txt=btn.innerHTML, paso=t=>{ const b=$('#czSaveBtn'); if(b) b.innerHTML=t; };
+  btn.disabled=true; let cot=null;
   try{
     // 1) se guarda y el servidor asigna el número  2) se arma el PDF con ese número y se adjunta
+    paso('⏳ Guardando…');
     const r=await call('saveCotizacion',d);
-    const cot=r.cotizacion;
-    busy(true); let blob; try{ blob=await pdfBlob(pdfDef(d,c,cot.id,editando?hoy():(d10(cot.fecha)||hoy()))); } finally{ busy(false); }
+    cot=r.cotizacion; upsert(S.db.cotizaciones,cot);
+    paso('⏳ Armando PDF '+cot.id+'…');
+    let blob; busy(true); try{ blob=await pdfBlob(pdfDef(d,c,cot.id,editando?hoy():(d10(cot.fecha)||hoy()))); } finally{ busy(false); }
     const b64=await leerB64(blob);
     const titulo=JSON.parse(d.extras_json).titulo;
     const up={id:cot.id,consulta_id:cot.consulta_id,silencioso:true,file_b64:b64,file_mime:'application/pdf',file_name:nombreArchivo(cot.id,c,titulo,CZ.mercado)+'.pdf'};
     if(S.demo) up._fileUrl=URL.createObjectURL(blob);
+    paso('⏳ Subiendo PDF a Drive…');
     const r2=await call('saveCotizacion',up,editando?'Cotización '+cot.id+' actualizada ✔ (PDF reemplazado)':'Cotización '+cot.id+' generada ✔');
     upsert(S.db.cotizaciones,r2.cotizacion); upsert(S.db.consultas,r2.consulta);
     alCerrarModal=null; cerrarModal(); refreshAll(); envio(cot.id,true);
     textosAlCatalogo(d.items);
-  }catch(e){ const b=$('#czSaveBtn'); if(b) b.disabled=false; }
+  }catch(e){
+    console.error(e);
+    if(cot){ // el número ya se asignó: el próximo intento corrige ESA cotización en vez de crear otra
+      CZ.modo='editar'; CZ.baseId=cot.id;
+      toast('⚠ La cotización '+cot.id+' quedó guardada pero falló el PDF ('+e.message+'). Tocá de nuevo "Guardar y generar PDF" para reintentar con el mismo número.',true);
+    } else if(!e.toasted) toast('⚠ No se pudo guardar: '+e.message,true);
+    const b=$('#czSaveBtn'); if(b){ b.disabled=false; b.innerHTML=txt; }
+  }
 }
 /** Al guardar una cotización, el texto de cada máquina/adicional que en el catálogo todavía estaba vacío queda guardado solo.
  *  Si el catálogo ya tenía texto, no se pisa (los cambios de una cotización quedan solo en esa cotización). */
@@ -1496,7 +1513,8 @@ async function pdfBlob(def){
   if(!window.pdfMake) throw new Error('no cargó pdfmake');
   await prepararFuentes(); def.defaultStyle.font=PDF_FONT;
   try{ return await new Promise((res,rej)=>{ try{ pdfMake.createPdf(def).getBlob(res); }catch(e){rej(e)} setTimeout(()=>rej(new Error('timeout')),20000); }); }
-  catch(e){ if(PDF_FONT==='Roboto') throw e; PDF_FONT='Roboto'; def.defaultStyle.font='Roboto'; return await new Promise(res=>pdfMake.createPdf(def).getBlob(res)); }
+  catch(e){ if(PDF_FONT==='Roboto') throw e; console.warn('Fuente Liberation no disponible, uso Roboto',e); PDF_FONT='Roboto'; def.defaultStyle.font='Roboto';
+    return await new Promise((res,rej)=>{ try{ pdfMake.createPdf(def).getBlob(res); }catch(e2){rej(e2)} setTimeout(()=>rej(new Error('el generador de PDF no respondió')),20000); }); }
 }
 function verPDF(cotId){
   const x=S.db.cotizaciones.find(y=>y.id===cotId);
