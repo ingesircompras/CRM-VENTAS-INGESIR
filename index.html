@@ -773,11 +773,31 @@ async function abrirConsulta(id,keepScroll){
   const dias=Number(cfg('DIAS_SEGUIMIENTO'))||3;
   // botón principal según el momento de la consulta
   const ult=cots[cots.length-1];
-  const principal = !isOpen(c) ? '' : !cots.length ? `<button class="btn xl acc" onclick="cotizador('${id}')">📄 Cotizar</button>`
+  const principal = !isOpen(c) || !cots.length ? ''
     : (!ult.enviada_fecha || pendienteReenvio(ult)) ? `<button class="btn xl acc" onclick="envio('${ult.id}')">📤 Enviar cotización ${esc(ult.id)}</button>`
     : `<button class="btn xl acc" onclick="const t=$('#ctTxt');t.scrollIntoView({behavior:'smooth',block:'center'});t.focus()">📝 Registrar seguimiento</button>`;
   const nx=isOpen(c)?sigPaso(c):null;
   const tituloCot=x=>{try{return JSON.parse(x.extras_json||'{}').titulo||JSON.parse(x.items_json||'[]').map(i=>i.nombre).join(' + ')}catch(e){return ''}};
+  const panelCot = `<div class="panel"><div class="tit">COTIZACIONES</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        ${cots.length?cots.slice().reverse().map(x=>`<div class="cot2">
+            <div class="row" style="gap:8px"><b style="font-size:16px">${esc(x.id)}</b><span class="pill" style="background:${mercadoDe(x)==='ME'?'#0e7490':'#475569'}">${mercadoDe(x)}</span><span class="grow"></span><b>${num(x.total)?money(x.total,x.moneda)+' <span class="muted small" style="font-weight:400">'+ivaTxt(x)+'</span>':'<span class="muted small">sin monto</span>'}</b></div>
+            <div class="small">${esc(tituloCot(x))}</div>
+            <div class="small ${x.enviada_fecha?'':'muted'}" style="margin-top:2px">${x.enviada_fecha?'✔ Enviada el '+fd(x.enviada_fecha):'✗ Todavía no se envió'} · ${fd(x.fecha)}</div>
+            ${pendienteReenvio(x)?'<div class="small" style="color:var(--warn);font-weight:700">⚠ Se modificó después de enviarla: reenviala</div>':''}
+            <div class="row" style="gap:6px;margin-top:8px">
+              ${x.pdf_url||x._fileUrl?`<button class="btn" onclick="verPDF('${x.id}')">👁 Ver PDF</button>`:''}
+              <button class="btn pri" onclick="envio('${x.id}')">📤 Enviar</button>
+              <details class="mas izq"><summary class="btn">⋯ Más</summary><div class="mas-menu">
+                ${esEditable(x)?`<button class="btn" onclick="cotizador('${id}','${x.id}','editar')">✏️ Corregir (mismo número)</button>`:''}
+                <button class="btn" onclick="cotizador('${id}','${x.id}','rev')">↻ Nueva revisión</button>
+                <button class="btn" onclick="cotizador('${id}','${x.id}','copia')">⧉ Copiar como nueva</button>
+                <button class="btn" onclick="adjuntar('${x.id}')">📎 Adjuntar PDF/Word</button>
+                <button class="btn danger" onclick="eliminarCotizacion('${x.id}')">🗑 Eliminar</button></div></details>
+            </div></div>`).join(''):`<div class="muted" style="font-size:15px">Todavía no se le hizo ninguna cotización.</div>`}
+        </div>
+        ${isOpen(c)?`<button class="btn ${cots.length?'':'xl acc'}" style="margin-top:10px;width:100%" onclick="cotizador('${id}')">📄 ${cots.length?'Hacer otra cotización':'Hacer la cotización'} para ${esc(nombreDe(c))}</button>`:''}
+        </div>`;
   dr.innerHTML = `<div class="drawer-ov" onclick="cerrarDrawer()"></div><aside class="drawer simple">
     <div class="dh"><div class="row"><span class="muted small">${c.id} · ingresó ${fdt(c.fecha)} por ${CANAL_ICO[c.canal]||''} ${esc(c.canal||'')}${c.creado_por?' · cargó '+esc(c.creado_por):''}</span><span class="grow"></span><button class="x" onclick="cerrarDrawer()">×</button></div>
       <div class="row"><h2 style="margin:2px 0" class="grow">${esc(nombreDe(c))}</h2><span class="pill" style="background:${EST_COLOR[c.estado]};font-size:14px">${esc(c.estado)}</span></div>
@@ -793,6 +813,7 @@ async function abrirConsulta(id,keepScroll){
           <button class="btn danger" onclick="eliminarConsulta('${id}')">🗑 Eliminar (cargada por error)</button></div></details>
       </div></div>
     <div class="db">
+      ${cots.length?'':panelCot}
       ${isOpen(c)?`<div class="panel" style="border-left:5px solid ${venc(c)?'var(--danger)':'var(--accent)'}">
         <div class="tit">¿QUÉ PASÓ CON EL CLIENTE?</div>
         ${c.proxima_fecha?`<div class="aviso ${venc(c)?'venc':''}">${venc(c)?'⏰ Pendiente desde el':'📅 Agendado para el'} <b>${fd(c.proxima_fecha)}</b>: ${esc(c.proxima_accion||'Seguimiento')}</div>`:''}
@@ -814,25 +835,7 @@ async function abrirConsulta(id,keepScroll){
           ${c.fecha_envio&&planDe(c.calificacion).length?`<details style="margin-top:8px"><summary class="small muted">Ver plan de seguimiento (calificación ${esc(c.calificacion||'2')})</summary><div class="small" style="margin-top:4px">${planDe(c.calificacion).map((st,i)=>`<div style="${i<Number(c.seg_paso||0)?'color:var(--ok)':i==Number(c.seg_paso||0)?'font-weight:700':'color:var(--muted)'}">${i<Number(c.seg_paso||0)?'✔':'◻'} ${esc(st.a)} (a los ${st.d} días del envío)</div>`).join('')}</div></details>`:''}
         </div></div>`:''}
 
-      <div class="panel"><div class="row"><div class="tit grow" style="margin:0">COTIZACIONES</div>${isOpen(c)?`<button class="btn sm acc" onclick="cotizador('${id}')">+ Nueva</button>`:''}</div>
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
-        ${cots.length?cots.slice().reverse().map(x=>`<div class="cot2">
-            <div class="row" style="gap:8px"><b style="font-size:16px">${esc(x.id)}</b><span class="pill" style="background:${mercadoDe(x)==='ME'?'#0e7490':'#475569'}">${mercadoDe(x)}</span><span class="grow"></span><b>${num(x.total)?money(x.total,x.moneda)+' <span class="muted small" style="font-weight:400">'+ivaTxt(x)+'</span>':'<span class="muted small">sin monto</span>'}</b></div>
-            <div class="small">${esc(tituloCot(x))}</div>
-            <div class="small ${x.enviada_fecha?'':'muted'}" style="margin-top:2px">${x.enviada_fecha?'✔ Enviada el '+fd(x.enviada_fecha):'✗ Todavía no se envió'} · ${fd(x.fecha)}</div>
-            ${pendienteReenvio(x)?'<div class="small" style="color:var(--warn);font-weight:700">⚠ Se modificó después de enviarla: reenviala</div>':''}
-            <div class="row" style="gap:6px;margin-top:8px">
-              ${x.pdf_url||x._fileUrl?`<button class="btn" onclick="verPDF('${x.id}')">👁 Ver PDF</button>`:''}
-              <button class="btn pri" onclick="envio('${x.id}')">📤 Enviar</button>
-              <details class="mas izq"><summary class="btn">⋯ Más</summary><div class="mas-menu">
-                ${esEditable(x)?`<button class="btn" onclick="cotizador('${id}','${x.id}','editar')">✏️ Corregir (mismo número)</button>`:''}
-                <button class="btn" onclick="cotizador('${id}','${x.id}','rev')">↻ Nueva revisión</button>
-                <button class="btn" onclick="cotizador('${id}','${x.id}','copia')">⧉ Copiar como nueva</button>
-                <button class="btn" onclick="adjuntar('${x.id}')">📎 Adjuntar PDF/Word</button>
-                <button class="btn danger" onclick="eliminarCotizacion('${x.id}')">🗑 Eliminar</button></div></details>
-            </div></div>`).join(''):`<div class="muted">Todavía no se cotizó.</div>`}
-        </div></div>
-
+      ${cots.length?panelCot:''}
       <div class="panel"><div class="tit">ESTADO Y RESPONSABLE</div>
         <div class="row" style="gap:8px">
           <select class="inp" style="width:auto;font-size:15px" onchange="setEstado('${id}',this.value)">${ESTADOS.map(e=>`<option ${c.estado===e?'selected':''}>${e}</option>`).join('')}</select>
