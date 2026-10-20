@@ -669,7 +669,7 @@ function formProducto(cod){
     <label class="f span2">Descripción técnica (sale en la cotización)<textarea id="pDes" rows="9">${esc(p.descripcion)}</textarea></label>
     <div class="span2 row" style="gap:6px"><select id="pUsar" class="grow"><option value="">📄 Copiar el texto de otro ítem…</option>${textosOpts()}</select><button class="btn sm" onclick="const x=S.db.productos.find(y=>y.codigo===$('#pUsar').value);if(x){$('#pDes').value=x.descripcion;}">Copiar</button></div>
     <label class="f">IVA %<select id="pIva">${[10.5,21,0].map(v=>`<option ${num(p.iva||10.5)===v?'selected':''}>${v}</option>`).join('')}</select></label>
-    <label class="small row" style="gap:6px;align-self:end"><input type="checkbox" id="pOk" ${p.revisar?'':'checked'}> Texto revisado y correcto</label>
+    <label class="small row" style="gap:6px;align-self:end"><input type="checkbox" id="pOk" checked> Texto revisado y correcto (al guardar queda ✅ ok)</label>
     ${p.origen?`<div class="small muted span2">Texto tomado de la cotización ${esc(p.origen)}</div>`:''}
   </div>`, `${cod?`<button class="btn danger" onclick="guardarProducto('NO')">Dar de baja</button><span class="grow"></span>`:''}<button class="btn" onclick="cerrarModal()">Cancelar</button><button class="btn pri" onclick="guardarProducto('SI')">Guardar</button>`, true);
 }
@@ -679,7 +679,7 @@ async function guardarProducto(activo){
   const tipo=$('#pTipo').value, des=$('#pDes').value;
   const d=Object.assign({},old,{codigo:$('#pCod').value.trim(),nombre:$('#pNom').value.trim(),descripcion:des,iva:num($('#pIva').value),activo,tipo,familia:$('#pFam').value.trim(),
     num:tipo==='ADICIONAL'?$('#pNum').value.trim():'',adicionales:tipo==='MAQUINA'?$('#pAd').value.split(/[^0-9]+/).filter(Boolean).join(','):'',
-    revisar:$('#pOk').checked&&des.trim()?'':(old.revisar||(des.trim()?'revisar':'sin_texto'))});
+    revisar:!des.trim()?'sin_texto':($('#pOk').checked?'':'revisar')});
   if(!d.codigo||!d.nombre) return toast('Código y nombre son obligatorios',true);
   if(tipo==='ADICIONAL' && !d.num) return toast('Poné el número de adicional',true);
   S.db.productos = await call('saveProducto',d,'Catálogo actualizado');
